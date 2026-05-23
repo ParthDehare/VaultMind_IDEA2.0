@@ -1,0 +1,11 @@
+mirage_id,risk_level,department
+ACC-MIRAGE-001,Critical,Executive Board
+ACC-MIRAGE-002,High,IT Infrastructure
+ACC-MIRAGE-003,Critical,Wealth Management
+ACC-MIRAGE-004,High,Corporate Treasury
+ACC-MIRAGE-005,Critical,Compliance Strategy
+ACC-MIRAGE-006,Medium,General Ledgers
+ACC-MIRAGE-007,Critical,Special Operations
+ACC-MIRAGE-008,High,HR Payroll Conf
+ACC-MIRAGE-009,Medium,Retail Operations
+ACC-MIRAGE-010,Critical,Master Vault
