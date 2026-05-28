@@ -324,14 +324,26 @@ class SentimentWatch:
         """
         for category, entries in self.lexicon.items():
             for entry in entries:
-                # Support both tuple and list from JSON
-                phrase, weight, idf = entry[0], float(entry[1]), float(entry[2])
+                # --- SMART HANDLING START ---
+                if isinstance(entry, str):
+                    # Agar file mein sirf word (string) hai bina weight ke
+                    phrase, weight, idf = entry, 1.0, 1.0
+                elif isinstance(entry, dict):
+                    # Agar galti se dictionary pass ho gayi ho
+                    phrase = str(list(entry.keys())[0])
+                    weight, idf = 1.0, 1.0
+                else:
+                    # Agar proper list/tuple hai (Expected format)
+                    phrase = str(entry[0])
+                    weight = float(entry[1]) if len(entry) > 1 else 1.0
+                    idf = float(entry[2]) if len(entry) > 2 else 1.0
+                # --- SMART HANDLING END ---
+
                 phrase_norm = phrase.lower().strip()
                 # Keep highest-weight version if phrase appears in multiple cats
                 if phrase_norm not in self._flat_lookup or \
                    weight > self._flat_lookup[phrase_norm][0]:
                     self._flat_lookup[phrase_norm] = (weight, idf, category)
-
         print(
             f"[SentimentWatch] Flat lookup built. "
             f"{len(self._flat_lookup)} unique phrases indexed."
