@@ -2,13 +2,13 @@ version: '3.8'
 
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:latest
+    image: confluentinc/cp-zookeeper:7.3.0
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
-    image: confluentinc/cp-kafka:latest
+    image: confluentinc/cp-kafka:7.3.0
     depends_on:
       - zookeeper
     environment:
@@ -22,19 +22,12 @@ services:
     ports:
       - "6379:6379"
 
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.web
-    ports:
-      - "80:80"
-    depends_on:
-      - backend
-
   backend:
     build:
       context: .
       dockerfile: Dockerfile.api
+    ports:
+      - "80:8000"
     environment:
       - KAFKA_BROKER=kafka:9092
       - REDIS_HOST=redis
@@ -46,7 +39,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
-    command: python server/kafka_config/kafka_producer.py
+    command: python kafka_config/kafka_producer.py
     environment:
       - KAFKA_BROKER=kafka:9092
     depends_on:

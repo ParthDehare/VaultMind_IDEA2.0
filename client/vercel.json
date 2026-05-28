@@ -2,15 +2,11 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://<YOUR-DIGITALOCEAN-APP-URL>.ondigitalocean.app/api/:path*"
+      "destination": "http://168.144.22.24/api/:path*"
     },
     {
       "source": "/get-next-transaction",
-      "destination": "https://<YOUR-DIGITALOCEAN-APP-URL>.ondigitalocean.app/get-next-transaction"
-    },
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "destination": "http://168.144.22.24/get-next-transaction"
     }
   ]
 }
