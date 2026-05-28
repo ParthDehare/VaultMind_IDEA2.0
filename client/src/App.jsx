@@ -966,7 +966,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => {
-                              const pdfUrl = `/api/evidence/download?emp_id=${eid}`;
+                              const pdfUrl = `https://api.vaultmind.systems/api/evidence/download?emp_id=${eid}`;
                               forceDownloadPDF(pdfUrl, eid);
                             }}
                             className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"
@@ -984,7 +984,7 @@ export default function App() {
                           <span className="text-[10px] font-mono font-bold text-gray-500 tracking-widest">[ ANALYST: VIEW-ONLY MODE ]</span>
                           <button
                             onClick={() => {
-                              const pdfUrl = `/api/evidence/download?emp_id=${eid}`;
+                              const pdfUrl = `https://api.vaultmind.systems/api/evidence/download?emp_id=${eid}`;
                               forceDownloadPDF(pdfUrl, eid);
                             }}
                             className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"
@@ -1098,7 +1098,7 @@ export default function App() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const cleanFilename = evd.filename.split('\\').pop().split('/').pop();
-                                const pdfUrl = `/api/evidence/download?filename=${encodeURIComponent(cleanFilename)}`;
+                                const pdfUrl = `https://api.vaultmind.systems/api/evidence/download?filename=${encodeURIComponent(cleanFilename)}`;
                                 forceDownloadPDF(pdfUrl, evd.emp_id);
                               }}
                               className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"

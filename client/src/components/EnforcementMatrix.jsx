@@ -39,7 +39,7 @@ export function EnforcementMatrix({ emp_id, onConfirm, userRole, onToast }) {
 
   const handleDownload = (e) => {
     e.stopPropagation();
-    const targetUrl = pdfUrl || `/api/evidence/download?emp_id=${emp_id}`;
+    const targetUrl = `https://api.vaultmind.systems/api/evidence/download?emp_id=${emp_id}`;
     forceDownloadPDF(targetUrl, emp_id);
   };
 
