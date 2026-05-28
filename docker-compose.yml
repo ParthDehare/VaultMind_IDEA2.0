@@ -26,8 +26,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    container_name: backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "80:8000"
+      - "8000:8000" 
+    env_file:
+      - .env        
     environment:
       - KAFKA_BROKER=kafka:9092
       - REDIS_HOST=redis
@@ -39,7 +43,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    container_name: producer
     command: python kafka_config/kafka_producer.py
+    env_file:
+      - .env
     environment:
       - KAFKA_BROKER=kafka:9092
     depends_on:
