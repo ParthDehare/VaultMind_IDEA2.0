@@ -1,0 +1,19 @@
+{
+    "keywords": [
+        "stolen",
+        "bribe",
+        "hacked",
+        "extortion",
+        "unauthorized",
+        "illegal",
+        "threat",
+        "fraud",
+        "launder",
+        "forged"
+    ],
+    "multipliers": {
+        "bribe": 1.5,
+        "extortion": 2.0,
+        "fraud": 1.2
+    }
+}

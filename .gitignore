@@ -66,3 +66,10 @@ client/build/
 .Trashes
 ehthumbs.db
 Thumbs.db
+# =========================
+# AI Generated logs and helper scripts
+# =========================
+docs/
+START_ALL*
+start_backend.sh
+start_frontend.sh

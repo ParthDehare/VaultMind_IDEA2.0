@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://<YOUR-DIGITALOCEAN-APP-URL>.ondigitalocean.app/api/:path*"
+    },
+    {
+      "source": "/get-next-transaction",
+      "destination": "https://<YOUR-DIGITALOCEAN-APP-URL>.ondigitalocean.app/get-next-transaction"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

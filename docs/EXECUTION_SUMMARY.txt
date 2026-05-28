@@ -46,7 +46,7 @@
 ✅ DATA VERIFICATION
    ├─ historical_warmup_data.csv (47,521 records)
    ├─ live_demo_stream.csv (5,000 records)
-   ├─ Both in Testing_data/ directory
+   ├─ Both in server/data/Testing_data/ directory
    ├─ Pandas-compatible format
    └─ ✅ Ready to load
 
@@ -125,10 +125,10 @@ METHOD 1: ONE-CLICK (Windows)
 METHOD 2: MANUAL (Any OS)
   Terminal 1:
     $ cd d:\DEmo
-    $ python main.py
+    $ python server/main.py
 
   Terminal 2:
-    $ cd d:\DEmo\frontend
+    $ cd d:\DEmo\client
     $ npm run dev
 
   Browser:
@@ -136,8 +136,8 @@ METHOD 2: MANUAL (Any OS)
 
 
 METHOD 3: BACKGROUND (if you prefer)
-  $ python main.py &
-  $ cd frontend && npm run dev &
+  $ python server/main.py &
+  $ cd client && npm run dev &
   $ open http://localhost:5173
 
 
@@ -217,10 +217,10 @@ BACKEND:
   └─ master_orchestrator.py ............. ML Pipeline
 
 FRONTEND:
-  └─ frontend/src/App.jsx ............... API-driven Dashboard
+  └─ client/src/App.jsx ............... API-driven Dashboard
 
 DATA:
-  └─ Testing_data/
+  └─ server/data/Testing_data/
      ├─ historical_warmup_data.csv ...... 47k records
      └─ live_demo_stream.csv ............ 5k records
 
@@ -338,7 +338,7 @@ THAT'S IT! YOU'RE LIVE! 🎉
 Choose your method above and run:
 
   Windows:     START_ALL.bat
-  Manual:      python main.py (+ npm run dev in another terminal)
+  Manual:      python server/main.py (+ npm run dev in another terminal)
   Linux/Mac:   bash start_backend.sh (+ bash start_frontend.sh)
 
 Then open: http://localhost:5173
@@ -352,6 +352,6 @@ COMPLETE - READY FOR DEPLOYMENT
 
 Generated: 2026-05-19 17:50:53 UTC+5:30
 Status: 🟢 PRODUCTION READY
-Command: START_ALL.bat or python main.py
+Command: START_ALL.bat or python server/main.py
 
 All tasks completed successfully!

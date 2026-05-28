@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
+import { authStore } from '../authStore';
+import { forceDownloadPDF } from '../utils.js';
 
-export function EnforcementMatrix({ emp_id, onConfirm }) {
+export function EnforcementMatrix({ emp_id, onConfirm, userRole, onToast }) {
   const [status, setStatus] = useState("idle");
 
   if (status === "done") {
@@ -19,11 +21,12 @@ export function EnforcementMatrix({ emp_id, onConfirm }) {
   const handleAction = async (actionType) => {
     if (actionType === "FALSE_ALARM") setStatus("recalibrating");
     try {
-      await fetch(`http://localhost:8000/api/feedback/${emp_id}`, {
+      await fetch(`/api/feedback/${emp_id}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: actionType })
+        headers: authStore.getAuthHeaders(),
+        body: JSON.stringify({ action: actionType, feedback_text: `Marked as ${actionType} by user` })
       });
+      if (onToast) onToast("Action Logged: Feedback sent to AI Retraining Pipeline.");
     } catch (e) { console.error("Feedback error", e); }
     
     if (actionType === "CONFIRM") {
@@ -34,8 +37,33 @@ export function EnforcementMatrix({ emp_id, onConfirm }) {
     }
   };
 
+  const handleDownload = (e) => {
+    e.stopPropagation();
+    const targetUrl = pdfUrl || `/api/evidence/download?emp_id=${emp_id}`;
+    forceDownloadPDF(targetUrl, emp_id);
+  };
+
+  const downloadBtn = (
+    <button 
+      onClick={handleDownload}
+      className="px-2 py-1 text-[9px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"
+    >
+      [ 📥 DOWNLOAD EVIDENCE ]
+    </button>
+  );
+
+  if (userRole === "analyst") {
+    return (
+      <div className="mt-3 flex items-center gap-2 pt-2 border-t border-[#222]">
+        {downloadBtn}
+        <span className="text-[9px] font-mono font-bold text-gray-500 tracking-widest">[ ANALYST: VIEW-ONLY MODE ]</span>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-3 flex items-center gap-2 pt-2 border-t border-[#222]">
+      {downloadBtn}
       <button 
         onClick={(e) => { e.stopPropagation(); handleAction("CONFIRM"); }}
         className="px-2 py-1 text-[9px] font-mono font-bold border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white transition-colors uppercase rounded-sm cursor-pointer"

@@ -18,9 +18,30 @@ export const TIER_COLORS = (t) => ({
 
 export const ROWS_PER_PAGE = 20;
 
+import { authStore } from './authStore';
+
 export const riskTier = (score) => {
   if (score >= 70) return "CRITICAL";
   if (score >= 50) return "HIGH";
   if (score >= 30) return "WATCH";
   return "NORMAL";
+};
+
+export const forceDownloadPDF = async (pdfUrl, empId) => {
+  try {
+    const headers = authStore.getAuthHeaders();
+    const response = await fetch(pdfUrl, { headers });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Fraud_Evidence_${empId}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch (error) {
+    console.error("Download error:", error);
+  }
 };

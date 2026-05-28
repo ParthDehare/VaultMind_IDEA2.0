@@ -41,9 +41,9 @@ Then open browser: **http://localhost:5173**
 │     - Returns risk_score + risk_tier                │
 │                                                       │
 │  📊 DATA LAYER                                      │
-│  ├─ Testing_data/historical_warmup_data.csv         │
+│  ├─ server/data/Testing_data/historical_warmup_data.csv         │
 │  │  (47,521 historical transactions)                │
-│  └─ Testing_data/live_demo_stream.csv               │
+│  └─ server/data/Testing_data/live_demo_stream.csv               │
 │     (5,000 live transactions for streaming)         │
 │                                                       │
 └─────────────────────────────────────────────────────┘
@@ -61,7 +61,7 @@ cd d:\DEmo
 pip install fastapi uvicorn pandas torch joblib
 
 # Run backend
-python main.py
+python server/main.py
 ```
 
 **Expected Output:**
@@ -83,7 +83,7 @@ INFO:     Uvicorn running on http://127.0.0.1:8000
 
 ### **Terminal 2: Frontend Server**
 ```bash
-cd d:\DEmo\frontend
+cd d:\DEmo\client
 
 # Install dependencies (first time only)
 npm install
@@ -220,7 +220,7 @@ Should see logs like:
 **Fix:**
 ```bash
 pip install fastapi uvicorn pandas torch joblib
-python main.py
+python server/main.py
 ```
 
 **Error:** `Port 8000 already in use`
@@ -232,7 +232,7 @@ netstat -ano | findstr :8000
 taskkill /PID <PID> /F
 
 # Then restart
-python main.py
+python server/main.py
 ```
 
 ---
@@ -243,7 +243,7 @@ python main.py
 
 **Fix:**
 ```bash
-cd d:\DEmo\frontend
+cd d:\DEmo\client
 rm -r node_modules package-lock.json
 npm install
 npm run dev
@@ -312,12 +312,12 @@ CSV Files → Pandas DF → API → React → Dashboard
 - `api_server.py` - Extended API
 
 ✅ **Frontend Ready**
-- `frontend/src/App.jsx` - Refactored (API-driven)
-- `frontend/src/data.js` - Not used anymore
+- `client/src/App.jsx` - Refactored (API-driven)
+- `client/src/data.js` - Not used anymore
 
 ✅ **Data Ready**
-- `Testing_data/historical_warmup_data.csv` - 47k records
-- `Testing_data/live_demo_stream.csv` - 5k records
+- `server/data/Testing_data/historical_warmup_data.csv` - 47k records
+- `server/data/Testing_data/live_demo_stream.csv` - 5k records
 
 ✅ **Startup Scripts Ready**
 - `START_ALL.bat` - One-click startup (Windows)
@@ -328,7 +328,7 @@ CSV Files → Pandas DF → API → React → Dashboard
 
 ## **Next Steps**
 
-1. **Run** `START_ALL.bat` or `python main.py` + `npm run dev`
+1. **Run** `START_ALL.bat` or `python server/main.py` + `npm run dev`
 2. **Open** http://localhost:5173 in browser
 3. **Monitor** backend terminal for transactions
 4. **Check** browser console for API calls
@@ -342,6 +342,6 @@ CSV Files → Pandas DF → API → React → Dashboard
 - Backend logs: Terminal 1 (main.py)
 - Frontend logs: Browser F12 → Console
 - API responses: `curl` commands above
-- Data files: `Testing_data/` folder
+- Data files: `server/data/Testing_data/` folder
 
 **🚀 Everything is production-ready! Just run it!**

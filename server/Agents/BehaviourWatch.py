@@ -37,6 +37,9 @@ import json
 import os
 import warnings
 
+import numpy as np
+from core.ml_models import ml_models
+
 # ---------------------------------------------------------------------------
 # CONSTANTS
 # ---------------------------------------------------------------------------
@@ -448,6 +451,23 @@ class BehaviourWatch:
 
         # Clamp login_hour to valid range
         login_hour = max(0, min(23, login_hour))
+
+        # ── NEW: Try trained Isolation Forest FIRST ──
+        try:
+            features = np.array([amount, dwell_time, float(login_hour)])
+            ml_score = ml_models.predict_anomaly(features)
+            
+            if ml_score >= 0:  # Model is loaded and returned valid prediction
+                cbsi = ml_score
+                signal = self._resolve_signal(cbsi, 0.0, 0.0, 0.0)  # Simplified inputs for resolving signal
+                reason = f"[ML-PREDICTED] Isolation Forest anomaly score: {cbsi}/100 for {emp_class}"
+                return {
+                    "severity_index": cbsi,
+                    "signal":         signal,
+                    "reason":         reason
+                }
+        except Exception as e:
+            pass  # Fall through to rule-based logic as fallback
 
         # ── 2. O(1) baseline retrieval ────────────────────────────────────
         baseline = self._get_baseline(emp_class)

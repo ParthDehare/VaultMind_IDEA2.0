@@ -2,6 +2,7 @@ import os, hashlib, json, io, random
 from datetime import datetime
 import qrcode
 from PIL import Image
+from supabase import create_client, Client
 
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
@@ -97,6 +98,13 @@ class EvidenceBuilder:
         self.output_dir = 'evidence_output/pdf_reports'
         self.chain_dir = 'evidence_output/blockchain_chain'
         self.str_dir = 'evidence_output/str_reports'
+        
+        SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+        SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+        if SUPABASE_URL and SUPABASE_KEY:
+            self.supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        else:
+            self.supabase = None
         
         for d in [self.output_dir, self.chain_dir, self.str_dir]:
             os.makedirs(d, exist_ok=True)
@@ -281,4 +289,11 @@ class EvidenceBuilder:
         story += [_table(sig_rows, [3.55*inch, 3.55*inch], [("GRID", (0,0),(-1,-1), 0.5, C_MGREY), ("TOPPADDING", (0,0),(-1,-1), 10), ("BOTTOMPADDING", (0,0),(-1,-1), 10)])]
 
         doc.build(story)
+        
+        if hasattr(self, 'supabase') and self.supabase:
+            with open(output_path, "rb") as f:
+                file_bytes = f.read()
+            self.supabase.storage.from_("evidence-vault").upload(f"{alert_id}_{emp_id}.pdf", file_bytes, {"content-type": "application/pdf", "upsert": "true"})
+            return self.supabase.storage.from_("evidence-vault").get_public_url(f"{alert_id}_{emp_id}.pdf")
+            
         return output_path

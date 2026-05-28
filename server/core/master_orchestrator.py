@@ -2,6 +2,8 @@
 import json
 import logging
 import math
+import asyncio
+from datetime import datetime
 
 # ==========================================
 # IMPORTING ALL 8 VAULTMIND AGENTS
@@ -15,6 +17,7 @@ from Agents.RegulatoryAI import RegulatoryAI
 from Agents.EvidenceBuilder import EvidenceBuilder
 from Agents.DeceptionGuard import DeceptionGuard
 from core.db_connections import supabase_db, redis_db
+from core.historical_state import historical_state
 
 class MasterOrchestrator:
     def __init__(self):
@@ -29,11 +32,17 @@ class MasterOrchestrator:
         self.a8_deception = DeceptionGuard()
         print("[OK] All 8 Agents Online and Ready.")
 
-    def process_transaction(self, transaction: dict) -> dict:
+    async def process_transaction(self, transaction: dict) -> dict:
         """
-        Takes a single transaction and passes it through all agents.
-        Calculates the final Unified CBSI Score and updates Databases.
+        Process a single transaction through all registered agents concurrently.
+        Records volume to Redis historical state.
         """
+        employee_id = transaction.get("emp_id", transaction.get("employee_id", "UNKNOWN"))
+        amount = transaction.get("amount", 0.0)
+        
+        # ── 0. Update Historical State in Redis ──
+        historical_state.update_user_volume(employee_id, float(amount))
+
         agent_scores = {}
         total_weight = 0.0
         weighted_sum = 0.0
@@ -49,15 +58,7 @@ class MasterOrchestrator:
             
             # --- ⚡ REDIS & SUPABASE TRIGGERS (FOR KILL-SWITCH) ---
             self.update_redis_cbsi(employee_id, 100)
-            self.save_evidence_to_db(
-                transaction=transaction,
-                cbsi_score=100,
-                risk_level="CRITICAL (KILL-SWITCH)",
-                evidence_path=evidence_path,
-                agent_flags="DeceptionGuard"
-            )
-            # ------------------------------------------------------
-
+            
             response = {
                 "transaction_id": transaction.get("transaction_id", "UNKNOWN"),
                 "cbsi_score": 100,
@@ -67,6 +68,17 @@ class MasterOrchestrator:
                 "evidence_status": evidence_path
             }
             final_response = {**transaction, **response}
+            self.push_alert_to_redis(final_response)
+
+            self.save_evidence_to_db(
+                transaction=transaction,
+                cbsi_score=100,
+                risk_level="CRITICAL (KILL-SWITCH)",
+                evidence_path=evidence_path,
+                agent_flags="DeceptionGuard"
+            )
+            # ------------------------------------------------------
+
             if "employee_id" in final_response and "emp_id" not in final_response:
                 final_response["emp_id"] = final_response["employee_id"]
             
@@ -81,16 +93,20 @@ class MasterOrchestrator:
                 
             return clean_nans(final_response)
 
-        # ── 2. Run All Standard Agents ──
-        # In a real cluster, this would run asynchronously
-        results = {
-            "BehaviourWatch": self.a1_behaviour.evaluate(transaction),
-            "FundFlow": self.a2_fundflow.evaluate(transaction),
-            "VendorGuard": self.a3_vendor.evaluate(transaction),
-            "ComplaintSignal": self.a4_complaint.evaluate(transaction),
-            "NetworkIntel": self.a5_network.evaluate(transaction),
-            "RegulatoryAI": self.a6_regulatory.evaluate(transaction)
-        }
+        # ── 2. Run All Standard Agents in Parallel ──
+        results_list = await asyncio.gather(
+            asyncio.to_thread(self.a1_behaviour.evaluate, transaction),
+            asyncio.to_thread(self.a2_fundflow.evaluate, transaction),
+            asyncio.to_thread(self.a3_vendor.evaluate, transaction),
+            asyncio.to_thread(self.a4_complaint.evaluate, transaction),
+            asyncio.to_thread(self.a5_network.evaluate, transaction),
+            asyncio.to_thread(self.a6_regulatory.evaluate, transaction),
+        )
+        
+        results = dict(zip(
+            ["BehaviourWatch", "FundFlow", "VendorGuard", "ComplaintSignal", "NetworkIntel", "RegulatoryAI"],
+            results_list
+        ))
 
         # Weights based on Architecture Doc
         weights = {
@@ -124,10 +140,6 @@ class MasterOrchestrator:
 
         final_cbsi = int(min(100, (weighted_sum / total_weight)))
 
-        # --- ⚡ REDIS TRIGGER (Update Live Score for Everyone) ---
-        self.update_redis_cbsi(employee_id, final_cbsi)
-        # ---------------------------------------------------------
-
         # ── 3. Decision Engine ──
         decision = "PASS"
         evidence = "Not Required"
@@ -141,17 +153,6 @@ class MasterOrchestrator:
             decision = "MONITOR"
             risk_level = "MEDIUM"
 
-        # --- 🗄️ SUPABASE TRIGGER (Save Audit Log Only For Anomalies) ---
-        if risk_level in ["HIGH", "MEDIUM"]:
-            self.save_evidence_to_db(
-                transaction=transaction,
-                cbsi_score=final_cbsi,
-                risk_level=risk_level,
-                evidence_path=evidence,
-                agent_flags=dominant_agent
-            )
-        # ---------------------------------------------------------------
-
         response = {
             "transaction_id": transaction.get("transaction_id", "UNKNOWN"),
             "cbsi_score": final_cbsi,
@@ -163,6 +164,22 @@ class MasterOrchestrator:
         }
         
         final_response = {**transaction, **response}
+
+        # --- ⚡ REDIS TRIGGERS ---
+        self.update_redis_cbsi(employee_id, final_cbsi)
+        self.push_alert_to_redis(final_response)
+
+        # --- 🗄️ SUPABASE TRIGGER (Save Audit Log Only For Anomalies) ---
+        if risk_level in ["HIGH", "MEDIUM"]:
+            self.save_evidence_to_db(
+                transaction=transaction,
+                cbsi_score=final_cbsi,
+                risk_level=risk_level,
+                evidence_path=evidence,
+                agent_flags=dominant_agent
+            )
+        # ---------------------------------------------------------------
+        
         if "employee_id" in final_response and "emp_id" not in final_response:
             final_response["emp_id"] = final_response["employee_id"]
             
@@ -177,19 +194,43 @@ class MasterOrchestrator:
             
         return clean_nans(final_response)
     
+    def get_latest_processed_transaction(self):
+        """Returns the latest processed transaction/alert for the UI poll endpoint."""
+        if hasattr(self, "in_memory_alerts") and self.in_memory_alerts:
+            return self.in_memory_alerts[0]
+        raise ValueError("No transaction available yet. Please wait for the stream.")
+
     # Helper functions for database and cache operations
     def update_redis_cbsi(self, employee_id, cbsi_score):
-        if redis_db is None:
-            # Fallback: If Redis is unavailable or unconfigured, log the warning and proceed without error.
-            print(f"⚠️ [Redis Warning] Connection not established. Skipping CBSI update for {employee_id}.")
-            return
-
+        """Updates the real-time cache of employee CBSI scores."""
+        if redis_db is None: return
         try:
-            # Update the score for the employee in the unified 'live_cbsi_scores' hash map
             redis_db.hset("live_cbsi_scores", str(employee_id), float(cbsi_score))
             print(f"⚡ [Redis Fast-Cache] Updated CBSI for {employee_id}: {cbsi_score}")
         except Exception as e:
-            logging.error(f"⚠️ [Redis Update Error]: Failed to update score. Details: {e}")
+            logging.error(f"[Redis Cache Error] {e}")
+
+    def push_alert_to_redis(self, alert_data):
+        """Push alert to Redis LPUSH list, keep only latest 50"""
+        if not hasattr(self, "in_memory_alerts"):
+            self.in_memory_alerts = []
+            
+        self.in_memory_alerts.insert(0, alert_data)
+        self.in_memory_alerts = self.in_memory_alerts[:50]
+        
+        if redis_db is None: return
+        try:
+            def clean(obj):
+                if isinstance(obj, float) and math.isnan(obj): return None
+                if isinstance(obj, dict): return {k: clean(v) for k, v in obj.items()}
+                if isinstance(obj, list): return [clean(v) for v in obj]
+                return obj
+                
+            clean_data = clean(alert_data)
+            redis_db.lpush("live_alerts", json.dumps(clean_data))
+            redis_db.ltrim("live_alerts", 0, 49)  # Keep only 50
+        except Exception as e:
+            logging.error(f"[Redis Alert Push Error] {e}")
         
     def save_evidence_to_db(self, transaction, cbsi_score, risk_level, evidence_path, agent_flags):
         if supabase_db is None:

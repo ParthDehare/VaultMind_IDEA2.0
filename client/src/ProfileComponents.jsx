@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Play, BrainCircuit, ShieldAlert, GitMerge } from "lucide-react";
+import { authStore } from "./authStore";
 import { motion, AnimatePresence } from "framer-motion";
 
 // --- 1. Forensic Timeline ("CCTV Playback") ---
@@ -7,21 +8,25 @@ export function ForensicTimeline({ events = [] }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [visibleCount, setVisibleCount] = useState(0);
 
-  const mockEvents = events.length ? events : [
-    { time: "02:14 AM", text: "Off-hours system login detected", tier: "WATCH" },
-    { time: "02:17 AM", text: "Escalated DB_GRANT_ACCESS privileges", tier: "HIGH" },
-    { time: "02:22 AM", text: "Initiated SYSTEM_BULK_EXPORT", tier: "CRITICAL" },
-    { time: "02:24 AM", text: "Transfer of Rs.8.5M via RTGS", tier: "CRITICAL" }
-  ];
+  // Show real events as-is; only use demo fallback when no events exist at all
+  let displayEvents = events;
+  if (events.length === 0) {
+    displayEvents = [
+      { time: "02:14 AM", text: "Off-hours system login detected", tier: "WATCH" },
+      { time: "02:17 AM", text: "Escalated DB_GRANT_ACCESS privileges", tier: "HIGH" },
+      { time: "02:22 AM", text: "Initiated SYSTEM_BULK_EXPORT", tier: "CRITICAL" },
+      { time: "02:24 AM", text: "Transfer of Rs.8.5M via RTGS", tier: "CRITICAL" }
+    ];
+  }
 
   useEffect(() => {
-    if (isPlaying && visibleCount < mockEvents.length) {
+    if (isPlaying && visibleCount < displayEvents.length) {
       const timer = setTimeout(() => setVisibleCount((v) => v + 1), 600);
       return () => clearTimeout(timer);
-    } else if (visibleCount === mockEvents.length) {
+    } else if (visibleCount === displayEvents.length) {
       setTimeout(() => setIsPlaying(false), 1000);
     }
-  }, [isPlaying, visibleCount, mockEvents.length]);
+  }, [isPlaying, visibleCount, displayEvents.length]);
 
   const handlePlay = () => {
     setVisibleCount(0);
@@ -43,7 +48,7 @@ export function ForensicTimeline({ events = [] }) {
 
       <div className="pl-4 border-l-2 border-[#333333] space-y-4 py-2 relative">
         <AnimatePresence>
-          {mockEvents.slice(0, visibleCount === 0 && !isPlaying ? mockEvents.length : visibleCount).map((ev, i) => (
+          {displayEvents.slice(0, visibleCount === 0 && !isPlaying ? displayEvents.length : visibleCount).map((ev, i) => (
             <motion.div 
               key={i} 
               initial={{ opacity: 0, x: -20 }}
@@ -89,9 +94,9 @@ export function GlassBoxEngine({ score = 100, emp_id = "EMP_1024", context = nul
       transaction_id: context?.transaction_id
     };
 
-    fetch(`http://localhost:8000/api/explain/${emp_id}`, {
+    fetch(`/api/explain/${emp_id}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authStore.getAuthHeaders(),
       body: JSON.stringify(payload)
     })
       .then((res) => res.json())
@@ -205,6 +210,46 @@ export function ShapSimulator({ initialScore = 50, isCritical = false }) {
             {simScore}
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// --- 5. GNN Threat Node ---
+export function GNNThreatNode({ isCritical = false }) {
+  if (!isCritical) return null;
+  return (
+    <div className="p-4 mb-4 rounded-xl border border-[#E50914] bg-[#231010] shadow-[0_0_15px_rgba(229,9,20,0.3)] flex items-center gap-4 animate-pulse">
+      <GitMerge size={24} className="text-[#E50914]" />
+      <div>
+        <h4 className="text-[#E50914] font-bold text-sm uppercase tracking-wider">GNN Structural Anomaly</h4>
+        <p className="text-red-200 text-xs">Graph Neural Network detected suspicious peer-to-peer money layering.</p>
+      </div>
+    </div>
+  );
+}
+
+// --- 6. Historical Context Node ---
+export function HistoricalContext({ emp_id }) {
+  const [volume, setVolume] = useState(null);
+  
+  useEffect(() => {
+    fetch(`/api/profile/${emp_id}/history`, { headers: authStore.getAuthHeaders() })
+      .then(res => res.json())
+      .then(data => setVolume(data.seven_day_average))
+      .catch(err => console.error(err));
+  }, [emp_id]);
+
+  if (volume === null) return null;
+  
+  return (
+    <div className="p-4 mb-4 rounded-xl border border-[#333] bg-[#232323] flex items-center justify-between shadow-lg">
+      <div>
+        <h4 className="text-[#00D4AA] font-bold text-[11px] uppercase tracking-wider mb-1">7-Day Moving Avg Volume</h4>
+        <p className="text-gray-400 text-xs font-mono">Redis Historical State</p>
+      </div>
+      <div className="text-white font-mono text-xl font-bold tracking-widest">
+        Rs. {Math.round(volume).toLocaleString()}
       </div>
     </div>
   );

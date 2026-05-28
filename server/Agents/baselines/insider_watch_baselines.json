@@ -1,0 +1,10 @@
+{
+    "access_thresholds": {
+        "CLERK": 50,
+        "MANAGER": 100
+    },
+    "off_hours": {
+        "start": 22,
+        "end": 6
+    }
+}

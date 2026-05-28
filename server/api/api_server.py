@@ -7,7 +7,12 @@ from core.master_orchestrator import MasterOrchestrator
 import pandas as pd
 import os
 import glob
+import google.generativeai as genai
 from fastapi.responses import FileResponse
+from fastapi import Depends
+
+from core.auth import get_current_user, require_role, TokenData
+from core.historical_state import historical_state
 
 # Initialize APIRouter
 router = APIRouter()
@@ -48,7 +53,7 @@ orchestrator = MasterOrchestrator()
 # ENDPOINT 1: Top KPIs
 # ---------------------------------------------------------
 @router.get("/dashboard/kpis")
-def get_kpis():
+def get_kpis(current_user: TokenData = Depends(get_current_user)):
     return {
         "transactions_scanned": 48021,
         "critical_alerts": 12,
@@ -61,7 +66,7 @@ def get_kpis():
 # ENDPOINT 2: Kafka Live Stream Simulation
 # ---------------------------------------------------------
 @router.get("/stream/kafka-sim")
-def get_live_stream():
+def get_live_stream(current_user: TokenData = Depends(get_current_user)):
     # Simulated live data coming from Orchestrator
     return [
         {"emp_id": "EMP_1412", "type": "ATM_Withdrawal", "amount": 34739, "cbsi": 15, "time": datetime.now().strftime("%H:%M:%S")},
@@ -72,7 +77,7 @@ def get_live_stream():
 # ENDPOINT 3: Agent 2 Graph Fund Flow
 # ---------------------------------------------------------
 @router.get("/graph/fundflow")
-def get_graph_data():
+def get_graph_data(current_user: TokenData = Depends(get_current_user)):
     return {
         "nodes": [
             {"id": "EMP_1024", "label": "EMP_1024", "group": "critical"},
@@ -85,45 +90,48 @@ def get_graph_data():
     }
 
 # ---------------------------------------------------------
-# ENDPOINT 4: Glass-Box Explainability (Dynamic LLM Mock)
+# ENDPOINT 4: Glass-Box Explainability (Dynamic LLM)
 # ---------------------------------------------------------
 @router.post("/explain/{emp_id}")
-def generate_explanation(emp_id: str, payload: Optional[ExplainRequest] = None):
-    # Asli system mein yahan Gemini AI ka call jayega.
-    cbsi = payload.cbsi if payload and payload.cbsi is not None else None
-    action_type = payload.action_type if payload else None
-    amount = payload.amount if payload else None
-    channel = payload.transfer_channel if payload else None
-    remarks = payload.remarks if payload else None
+def generate_explanation(emp_id: str, payload: Optional[ExplainRequest] = None, current_user: TokenData = Depends(require_role("auditor", "analyst"))):
+    cbsi = payload.cbsi if payload and payload.cbsi is not None else "Unknown"
+    action_type = payload.action_type if payload else "Unknown"
+    amount = payload.amount if payload else "Unknown"
+    channel = payload.transfer_channel if payload else "Unknown"
+    remarks = payload.remarks if payload else "None"
 
-    if emp_id == "EMP_1024":
-        explanation = (
-            f"VaultMind flagged {emp_id} due to a direct interaction with a DeceptionGuard Honeypot account. "
-            "Agent 4 also detected privilege escalation 12 mins prior."
+    try:
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        
+        prompt = (
+            f"You are a Senior SOC Analyst for VaultMind AI. "
+            f"Explain in exactly 3 short, professional sentences why Employee {emp_id} "
+            f"was assigned a CBSI risk score of {cbsi}. "
+            f"Context: Action: {action_type}, Amount: {amount}, Channel: {channel}, Remarks/Flags: {remarks}. "
+            "Focus on the risk implications of this behavior."
         )
-    elif cbsi is None:
-        explanation = (
-            f"AI baseline active for {emp_id}. Insufficient telemetry to derive risk context. "
-            "Awaiting more signals for deeper analysis."
-        )
-    elif cbsi >= 80:
-        explanation = (
-            f"High-risk anomaly detected for {emp_id}. CBSI {cbsi:.1f} exceeds critical threshold. "
-            f"Action '{action_type or 'UNKNOWN'}' and channel '{channel or 'UNKNOWN'}' deviate from baseline. "
-            f"{'Transaction amount Rs.' + f'{amount:,.2f}' if amount else 'Amount signal unavailable.'}"
-        )
-    elif cbsi >= 50:
-        explanation = (
-            f"Elevated risk for {emp_id}. CBSI {cbsi:.1f} shows abnormal behavior. "
-            f"Action '{action_type or 'UNKNOWN'}' and channel '{channel or 'UNKNOWN'}' require review. "
-            f"{'Remarks flag: ' + remarks[:80] + '...' if remarks else 'No NLP flags detected.'}"
-        )
-    else:
-        explanation = (
-            f"Normal behavior observed for {emp_id}. CBSI {cbsi:.1f} within baseline. "
-            f"Action '{action_type or 'UNKNOWN'}' aligns with typical patterns. "
-            "No abnormal NLP signals detected."
-        )
+        
+        response = model.generate_content(prompt)
+        explanation = response.text.strip()
+    except Exception as e:
+        error_msg = str(e)
+        if "429" in error_msg or "Quota" in error_msg:
+            try:
+                # Fallback 1: Try the flash-lite model which usually has a separate quota bucket
+                fallback_model = genai.GenerativeModel('gemini-2.5-flash-lite')
+                response = fallback_model.generate_content(prompt)
+                explanation = response.text.strip()
+            except Exception:
+                # Fallback 2: Graceful offline fallback so the UI never breaks during a demo
+                explanation = (
+                    f"Employee {emp_id} triggered a CBSI risk score of {cbsi} due to anomalous patterns detected in the {action_type} activity. "
+                    f"The transaction involved an amount of {amount} via the {channel} channel, which deviates significantly from their established baseline. "
+                    f"Immediate review is recommended to rule out potential insider threat or account compromise."
+                )
+        else:
+            print(f"Gemini API Error: {e}")
+            explanation = f"Error generating AI explanation: {e}"
 
     return {"explanation": explanation}
 
@@ -131,7 +139,7 @@ def generate_explanation(emp_id: str, payload: Optional[ExplainRequest] = None):
 # ENDPOINT NEW: Download Actual Evidence PDF
 # ---------------------------------------------------------
 @router.get("/evidence/download")
-def download_evidence(emp_id: Optional[str] = None, filename: Optional[str] = None):
+def download_evidence(emp_id: Optional[str] = None, filename: Optional[str] = None, current_user: TokenData = Depends(get_current_user)):
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     reports_dir = os.path.join(base_dir, "evidence_output", "pdf_reports")
     
@@ -187,7 +195,7 @@ class STRRequest(BaseModel):
     cbsi_score: float
 
 @router.post("/evidence/file-str")
-def file_str(payload: STRRequest):
+def file_str(payload: STRRequest, current_user: TokenData = Depends(require_role("auditor"))):
     # Simulated FIU-IND submission
     return {"status": "success", "message": f"STR filed successfully for {payload.emp_id}"}
 
@@ -195,7 +203,7 @@ def file_str(payload: STRRequest):
 # ENDPOINT NEW: Dashboard Init — loads historical warmup data
 # ---------------------------------------------------------
 @router.get("/dashboard-init")
-def get_dashboard_init():
+def get_dashboard_init(current_user: TokenData = Depends(get_current_user)):
     """
     Returns last 500 rows of historical warmup data for initial dashboard population.
     """
@@ -228,8 +236,15 @@ def get_dashboard_init():
 # ---------------------------------------------------------
 # ENDPOINT 5: Human-in-the-Loop Feedback
 # ---------------------------------------------------------
+@router.get("/profile/{emp_id}/history")
+def get_historical_volume(emp_id: str, current_user: TokenData = Depends(get_current_user)):
+    avg = historical_state.get_7_day_average(emp_id)
+    return {"emp_id": emp_id, "seven_day_average": avg}
+
+# ---------------------------------------------------------
+# ENDPOINT 6: Human-in-the-Loop Feedback
 @router.post("/feedback/{emp_id}")
-def submit_feedback(emp_id: str, feedback: FeedbackRequest):
+def submit_feedback(emp_id: str, feedback: FeedbackRequest, current_user: TokenData = Depends(require_role("auditor"))):
     if feedback.action == "CONFIRM":
         return {"status": "success", "message": f"Incident confirmed. Locking {emp_id} terminal and drafting FIU-STR."}
     else:
@@ -239,18 +254,18 @@ def submit_feedback(emp_id: str, feedback: FeedbackRequest):
 # ENDPOINT 7: Orchestrator Transaction Scan (with Debug Logs)
 # ---------------------------------------------------------
 @router.post("/orchestrator/scan")
-def orchestrator_scan(tx: TransactionRequest):
+async def orchestrator_scan(tx: TransactionRequest, current_user: TokenData = Depends(require_role("auditor"))):
     tx_dict = tx.dict()
     
     print(f"\n{'='*70}")
-    print(f"🔵 Backend received transaction: {tx_dict['transaction_id']}")
-    print(f"   Employee: {tx_dict['emp_id']} | Amount: Rs. {tx_dict['amount']}")
+    print(f"🕵️‍♂️ [MANUAL SCAN TRIGGERED] Processing EMP_ID: {tx_dict.get('emp_id')}")
+    print(f"💰 Amount: {tx_dict.get('amount')} | Channel: {tx_dict.get('transfer_channel')}")
     print(f"{'='*70}")
+
+    # Pass the transaction through the Orchestrator
+    result = await orchestrator.process_transaction(tx_dict)
     
-    # Run orchestrator models
-    result = orchestrator.process_transaction(tx_dict)
-    
-    predicted_score = result.get('risk_score', 15)
+    predicted_score = result.get('cbsi_score', 0)
     print(f"\n{'='*70}")
     print(f"✅ Model predicted score: {predicted_score}/100")
     print(f"   Risk Level: {'🔴 CRITICAL' if predicted_score >= 70 else '🟡 HIGH' if predicted_score >= 50 else '🟢 NORMAL'}")
@@ -268,7 +283,7 @@ def orchestrator_scan(tx: TransactionRequest):
 # ENDPOINT 8: Employee Roster with Metadata
 # ---------------------------------------------------------
 @router.get("/roster/employees")
-def get_employee_roster():
+def get_employee_roster(current_user: TokenData = Depends(get_current_user)):
     """
     Returns employee metadata (emp_id, emp_class, branch_id, etc.)
     Used by React frontend to display Employee Roster with Role and Branch columns
@@ -298,3 +313,25 @@ def get_employee_roster():
         }
     except Exception as e:
         return {"employees": [], "error": str(e), "total": 0}
+
+# ---------------------------------------------------------
+# ENDPOINT 9: Get Latest Alerts (Hot Cache)
+# ---------------------------------------------------------
+@router.get("/alerts/latest")
+def get_latest_alerts(current_user: TokenData = Depends(get_current_user)):
+    """Fast-path: Read latest 50 alerts from Redis or memory fallback"""
+    from core.db_connections import redis_db
+    import json
+    
+    if redis_db:
+        try:
+            raw = redis_db.lrange("live_alerts", 0, 49)
+            if raw:
+                return [json.loads(r) for r in raw]
+        except Exception:
+            pass
+            
+    # Fallback to in-memory list from orchestrator
+    if hasattr(orchestrator, "in_memory_alerts"):
+        return orchestrator.in_memory_alerts
+    return []

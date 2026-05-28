@@ -3,19 +3,21 @@ import FundFlowGraph from './components/FundFlowGraph';
 import {
   Sun, Moon, Search, Shield, Users, User, GitBranch, FileText,
   AlertTriangle, Activity, ChevronLeft, ChevronRight, Download,
-  Loader2, Radio, TrendingUp
+  Loader2, Radio, TrendingUp, LogOut
 } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, Legend
 } from "recharts";
-import { ForensicTimeline, GlassBoxEngine, BlastRadius, ShapSimulator } from "./ProfileComponents.jsx";
+import { ForensicTimeline, GlassBoxEngine, BlastRadius, ShapSimulator, GNNThreatNode, HistoricalContext } from "./ProfileComponents.jsx";
 import { motion } from "framer-motion";
 import { getTriggeredRules, extractNlpFlags } from "./data";
-// ✨ Supabase Import Added Here ✨
 import { supabase } from './supabaseClient';
+import LoginPage from './components/LoginPage';
+import { authStore } from './authStore';
+import { useAppStore } from './store';
 
-import { DARK, LIGHT, TIER_COLORS, ROWS_PER_PAGE, riskTier } from "./utils.js";
+import { DARK, LIGHT, TIER_COLORS, ROWS_PER_PAGE, riskTier, forceDownloadPDF } from "./utils.js";
 import { Badge } from "./components/Badge.jsx";
 import { Card } from "./components/Card.jsx";
 import { KpiCard } from "./components/KpiCard.jsx";
@@ -24,68 +26,109 @@ import { LoadingShimmer } from "./components/LoadingShimmer.jsx";
 import { GraphSkeleton } from "./components/GraphSkeleton.jsx";
 import { EnforcementMatrix } from "./components/EnforcementMatrix.jsx";
 import { ProfileTabs } from "./components/ProfileTabs.jsx";
+import { Toast } from "./components/Toast.jsx";
 
 export default function App() {
-  const [theme, setTheme] = useState("dark");
-  const [page, setPage] = useState("command");
-  const [profileSearch, setProfileSearch] = useState("");
-  const [rosterPage, setRosterPage] = useState(1);
-  const [rosterSearch, setRosterSearch] = useState("");
-  const [rosterRole, setRosterRole] = useState("ALL");
-  const [rosterTier, setRosterTier] = useState("ALL");
+  const [isAuthenticated, setIsAuthenticated] = useState(!!authStore.getToken());
+  const [user, setUser] = useState(authStore.getUser());
+  const userRole = user?.role || '';
   const [downloading, setDownloading] = useState(null);
-  const [graphSearch, setGraphSearch] = useState("");
-  const [selectedNode, setSelectedNode] = useState(null);
+  
+  const theme = useAppStore(s => s.theme);
+  const setTheme = useAppStore(s => s.setTheme);
+  const page = useAppStore(s => s.page);
+  const setPage = useAppStore(s => s.setPage);
+  const profileSearch = useAppStore(s => s.profileSearch);
+  const setProfileSearch = useAppStore(s => s.setProfileSearch);
+  const rosterPage = useAppStore(s => s.rosterPage);
+  const setRosterPage = useAppStore(s => s.setRosterPage);
+  const rosterSearch = useAppStore(s => s.rosterSearch);
+  const setRosterSearch = useAppStore(s => s.setRosterSearch);
+  const rosterRole = useAppStore(s => s.rosterRole);
+  const setRosterRole = useAppStore(s => s.setRosterRole);
+  const rosterTier = useAppStore(s => s.rosterTier);
+  const setRosterTier = useAppStore(s => s.setRosterTier);
+  const graphSearch = useAppStore(s => s.graphSearch);
+  const setGraphSearch = useAppStore(s => s.setGraphSearch);
+  const selectedNode = useAppStore(s => s.selectedNode);
+  const setSelectedNode = useAppStore(s => s.setSelectedNode);
   const graphRef = useRef(null);
 
-  // API-Driven State
-  const [scoredTxns, setScoredTxns] = useState([]);
-  const [employeeMetadata, setEmployeeMetadata] = useState({});
-  const [isLoadingInitial, setIsLoadingInitial] = useState(true);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const scoredTxns = useAppStore(s => s.scoredTxns);
+  const setScoredTxns = useAppStore(s => s.setScoredTxns);
+  const employeeMetadata = useAppStore(s => s.employeeMetadata);
+  const setEmployeeMetadata = useAppStore(s => s.setEmployeeMetadata);
+  const isLoadingInitial = useAppStore(s => s.isLoadingInitial);
+  const setIsLoadingInitial = useAppStore(s => s.setIsLoadingInitial);
+  const autoRefresh = useAppStore(s => s.autoRefresh);
+  const setAutoRefresh = useAppStore(s => s.setAutoRefresh);
+
   const MAX_TRANSACTIONS = 10000;
-  // ERR7: Evidence vault pagination + new-row tracking
-  const [evidencePage, setEvidencePage] = useState(1);
-  const [newEvidenceIds, setNewEvidenceIds] = useState(new Set());
+
+  const evidencePage = useAppStore(s => s.evidencePage);
+  const setEvidencePage = useAppStore(s => s.setEvidencePage);
+  const newEvidenceIds = useAppStore(s => s.newEvidenceIds);
+  const setNewEvidenceIds = useAppStore(s => s.setNewEvidenceIds);
   const EVIDENCE_PER_PAGE = 20;
+  const [evidenceSearch, setEvidenceSearch] = useState("");
 
-  // ✨ Supabase Data State (Dummy Removed) ✨
-  const [vaultEvidence, setVaultEvidence] = useState([]);
+  const vaultEvidence = useAppStore(s => s.vaultEvidence);
+  const setVaultEvidence = useAppStore(s => s.setVaultEvidence);
 
-  // Other UI States
-  const [confirmedIncidents, setConfirmedIncidents] = useState([]);
-  const [falseAlarms, setFalseAlarms] = useState([]);
-  const [generateTarget, setGenerateTarget] = useState("");
-  const [isGeneratingDossier, setIsGeneratingDossier] = useState(false);
+  const confirmedIncidents = useAppStore(s => s.confirmedIncidents);
+  const setConfirmedIncidents = useAppStore(s => s.setConfirmedIncidents);
+  const falseAlarms = useAppStore(s => s.falseAlarms);
+  const setFalseAlarms = useAppStore(s => s.setFalseAlarms);
+  const generateTarget = useAppStore(s => s.generateTarget);
+  const setGenerateTarget = useAppStore(s => s.setGenerateTarget);
+  const isGeneratingDossier = useAppStore(s => s.isGeneratingDossier);
+  const setIsGeneratingDossier = useAppStore(s => s.setIsGeneratingDossier);
   const [lastGenerated, setLastGenerated] = useState(null);
+
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+
+  const showToast = useCallback((msg) => {
+    setToastMessage(msg);
+    setToastVisible(true);
+  }, []);
 
   const handleConfirmIncident = useCallback((emp_id) => {
     const normalized = (emp_id || "").toUpperCase();
     if (!normalized) return;
+    
+    const headers = authStore.getAuthHeaders();
+    fetch(`/api/feedback/${normalized}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ action: "CONFIRM", feedback_text: "Incident confirmed by Auditor" })
+    }).catch(err => console.error("Failed to submit feedback", err));
+
     setConfirmedIncidents((prev) => {
       if (prev.some((e) => e.emp_id === normalized)) return prev;
       return [{ emp_id: normalized, timestamp: new Date().toISOString() }, ...prev];
     });
+    showToast("Action Logged: Feedback sent to AI Retraining Pipeline.");
   }, []);
 
   const handleFalseAlarm = useCallback((emp_id) => {
     const normalized = (emp_id || "").toUpperCase();
     if (!normalized) return;
     
-    // Call the backend feedback API
-    fetch(`http://localhost:8000/api/feedback/${normalized}`, {
+    const headers = authStore.getAuthHeaders();
+    fetch(`/api/feedback/${normalized}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "FALSE_ALARM", feedback_text: "Model retraining initiated by analyst" })
+      headers,
+      body: JSON.stringify({ action: "FALSE_ALARM", feedback_text: "Model retraining initiated by Auditor" })
     }).catch(err => console.error("Failed to submit feedback", err));
 
     setFalseAlarms((prev) => {
       if (prev.includes(normalized)) return prev;
       return [...prev, normalized];
     });
+    showToast("Action Logged: Feedback sent to AI Retraining Pipeline.");
   }, []);
 
-  // ✨ SUPABASE LIVE FETCH EFFECT ✨
   useEffect(() => {
     const fetchEvidence = async () => {
       try {
@@ -126,16 +169,14 @@ export default function App() {
           status: "Generated",
           risk: log.risk_level
         };
-        // ERR7: Flash new rows green
         setNewEvidenceIds(prev => new Set([...prev, newEvd.id]));
         setTimeout(() => setNewEvidenceIds(prev => { const n = new Set(prev); n.delete(newEvd.id); return n; }), 3000);
         setVaultEvidence(prev => [newEvd, ...prev]);
-        setEvidencePage(1); // jump to first page on new evidence
+        setEvidencePage(1);
       })
       .subscribe();
     return () => { supabase.removeChannel(subscription); };
   }, []);
-
 
   useEffect(() => {
     if (!confirmedIncidents.length) return;
@@ -155,8 +196,6 @@ export default function App() {
         }));
       if (!additions.length) return prev;
       const updated = [...additions, ...prev];
-      
-      // Auto-convert pending items to generated after 2 seconds
       setTimeout(() => {
         setVaultEvidence((current) =>
           current.map((item) =>
@@ -166,7 +205,6 @@ export default function App() {
           )
         );
       }, 2000);
-      
       return updated;
     });
   }, [confirmedIncidents]);
@@ -188,7 +226,6 @@ export default function App() {
           timestamp: new Date().toISOString().replace("T", " ").slice(0, 19) + "Z",
           status: "Generated"
         };
-        
         if (existingIdx !== -1) {
            const next = [...prev];
            next[existingIdx] = newEvd;
@@ -232,39 +269,54 @@ export default function App() {
   const t = theme === "dark" ? DARK : LIGHT;
   const tc = TIER_COLORS(t);
 
-  // 1. Initial Load — employee metadata + historical transactions
   useEffect(() => {
-    setIsLoadingInitial(true);
-    // Load employee metadata
-    fetch("http://localhost:8000/api/roster/employees")
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.employees && Array.isArray(data.employees)) {
-          const metadataMap = {};
-          data.employees.forEach((emp) => {
-            metadataMap[emp.emp_id] = { emp_class: emp.emp_class || "UNKNOWN", branch_id: emp.branch_id || "UNKNOWN" };
-          });
-          setEmployeeMetadata(metadataMap);
+    if (isAuthenticated) {
+      setIsLoadingInitial(true);
+      const headers = authStore.getAuthHeaders();
+      
+      const handleAuthError = (res) => {
+        if (res.status === 401) {
+          console.warn("Token expired! Logging out...");
+          handleLogout();
+          throw new Error("Unauthorized");
         }
-      })
-      .catch((err) => console.warn("Employee metadata fetch failed", err));
-    // Load historical transaction data
-    fetch("http://localhost:8000/api/dashboard-init")
-      .then((res) => res.json())
-      .then((payload) => {
-        const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
-        const normalized = rows.map((tx) => ({
-          ...tx,
-          cbsi: tx.cbsi ?? tx.cbsi_score ?? tx.predicted_cbsi_score ?? 0,
-          risk_tier: tx.risk_tier ?? riskTier(tx.cbsi ?? tx.cbsi_score ?? tx.predicted_cbsi_score ?? 0)
-        }));
-        setScoredTxns(normalized);
-      })
-      .catch((err) => console.error("Initial load failed", err))
-      .finally(() => setIsLoadingInitial(false));
-  }, []);
+        return res.json();
+      };
 
-  // WebSocket: normalize with emp_id/emp_class/branch_id fallbacks from transaction itself
+      // Ensure stream is started if we refreshed the page and bypassed login
+      fetch("/api/system/start-stream", { method: "POST", headers })
+        .then(handleAuthError)
+        .catch((err) => console.warn("Failed to auto-start stream", err));
+
+      fetch("/api/roster/employees", { headers })
+        .then(handleAuthError)
+        .then((data) => {
+          if (data.employees && Array.isArray(data.employees)) {
+            const metadataMap = {};
+            data.employees.forEach((emp) => {
+              metadataMap[emp.emp_id] = { emp_class: emp.emp_class || "UNKNOWN", branch_id: emp.branch_id || "UNKNOWN" };
+            });
+            setEmployeeMetadata(metadataMap);
+          }
+        })
+        .catch((err) => console.warn("Employee metadata fetch failed", err));
+
+      fetch("/api/dashboard-init", { headers })
+        .then(handleAuthError)
+        .then((payload) => {
+          const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
+          const normalized = rows.map((tx) => ({
+            ...tx,
+            cbsi: tx.cbsi ?? tx.cbsi_score ?? tx.predicted_cbsi_score ?? 0,
+            risk_tier: tx.risk_tier ?? riskTier(tx.cbsi ?? tx.cbsi_score ?? tx.predicted_cbsi_score ?? 0)
+          }));
+          setScoredTxns(normalized);
+        })
+        .catch((err) => console.error("Initial load failed", err))
+        .finally(() => setIsLoadingInitial(false));
+    }
+  }, [isAuthenticated]);
+
   const normalizeTransaction = useCallback((newTxn) => {
     if (!newTxn || !newTxn.emp_id) return null;
     const normalized = {
@@ -272,7 +324,6 @@ export default function App() {
       cbsi: newTxn.cbsi ?? newTxn.cbsi_score ?? newTxn.predicted_cbsi_score ?? 0,
       risk_tier: newTxn.risk_tier ?? riskTier(newTxn.cbsi ?? newTxn.cbsi_score ?? newTxn.predicted_cbsi_score ?? 0)
     };
-    // ERR4: update employeeMetadata inline from transaction fields
     if (newTxn.emp_class || newTxn.branch_id) {
       setEmployeeMetadata(prev => ({
         ...prev,
@@ -286,8 +337,15 @@ export default function App() {
   }, []);
 
   const fetchNextTransaction = useCallback(() => {
-    return fetch("http://localhost:8000/get-next-transaction")
-      .then((res) => res.json())
+    const headers = authStore.getAuthHeaders();
+    return fetch("/get-next-transaction", { headers })
+      .then((res) => {
+        if (res.status === 401) {
+          handleLogout();
+          throw new Error("Unauthorized");
+        }
+        return res.json();
+      })
       .then((newTxn) => {
         const normalized = normalizeTransaction(newTxn);
         if (normalized) {
@@ -297,28 +355,54 @@ export default function App() {
       .catch((err) => console.error("Live update failed", err));
   }, [normalizeTransaction]);
 
-  // WebSocket live stream
   useEffect(() => {
-    if (!autoRefresh) return;
-    const ws = new WebSocket("ws://localhost:8000/ws/alerts");
-    ws.onopen = () => console.log("🟢 Connected to WebSocket for live alerts");
-    ws.onmessage = (event) => {
-      try {
-        const newTxn = JSON.parse(event.data);
-        const normalized = normalizeTransaction(newTxn);
-        if (normalized) {
-          setScoredTxns((prev) => [...(Array.isArray(prev) ? prev : []), normalized].slice(-MAX_TRANSACTIONS));
+    if (!autoRefresh || !isAuthenticated) return;
+    let ws;
+    let reconnectTimeout;
+    let isMounted = true;
+
+    const connect = () => {
+      const token = authStore.getToken();
+      ws = new WebSocket(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/ws/alerts?token=${token}`);
+      ws.onopen = () => {
+        if (!isMounted) { ws.close(); return; }
+        console.log("🟢 Connected to WebSocket for live alerts");
+      };
+      ws.onmessage = (event) => {
+        try {
+          const newTxn = JSON.parse(event.data);
+          const normalized = normalizeTransaction(newTxn);
+          if (normalized) {
+            setScoredTxns((prev) => [...(Array.isArray(prev) ? prev : []), normalized].slice(-MAX_TRANSACTIONS));
+          }
+        } catch (err) {
+          console.error("Error processing WebSocket message", err);
         }
-      } catch (err) {
-        console.error("Error processing WebSocket message", err);
+      };
+      ws.onerror = (err) => console.error("WebSocket error:", err);
+      ws.onclose = () => {
+        console.log("🔴 WebSocket disconnected");
+        if (isMounted && autoRefresh) {
+          console.log("🔄 Reconnecting in 3s...");
+          reconnectTimeout = setTimeout(connect, 3000);
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.onclose = null; // Prevent reconnect on intentional unmount
+        if (ws.readyState === 1) ws.close();
+        else if (ws.readyState === 0) ws.onopen = () => ws.close();
+        else ws.close();
       }
     };
-    ws.onerror = (err) => console.error("WebSocket error:", err);
-    ws.onclose = () => console.log("🔴 WebSocket disconnected");
-    return () => ws.close();
-  }, [autoRefresh, normalizeTransaction]);
+  }, [autoRefresh, normalizeTransaction, isAuthenticated]);
 
-  // ── Employee scores (API-Driven) ────────────────────────────────
   const empScores = useMemo(() => {
     const map = {};
     for (const tx of scoredTxns) {
@@ -330,8 +414,6 @@ export default function App() {
       map[eid].sum += score;
       map[eid].count++;
     }
-    
-    // Create employee list from scored transactions
     const employees = Array.from(
       new Set(scoredTxns.map(tx => tx.emp_id).filter(Boolean))
     ).map(emp_id => ({ emp_id }));
@@ -340,10 +422,7 @@ export default function App() {
       const isFalseAlarm = falseAlarms.includes(e.emp_id);
       const s = map[e.emp_id] || { max: 0, sum: 0, count: 0 };
       const meta = employeeMetadata[e.emp_id] || { emp_class: "UNKNOWN", branch_id: "UNKNOWN" };
-      
-      // Override peak and tier if marked as false alarm
       const peakScore = isFalseAlarm ? 0 : s.max;
-
       return {
         ...e,
         emp_class: meta.emp_class,
@@ -356,9 +435,6 @@ export default function App() {
     }).sort((a, b) => b.peak - a.peak);
   }, [scoredTxns, employeeMetadata, falseAlarms]);
 
-  // ERR1: stats use scoredTxns (not capped displayBuffer)
-  // ERR2: high threshold aligned with riskTier() (>=50 && <70)
-  // ERR3: confirmed fraud uses confirmedIncidents.length (not is_fraud_flag)
   const stats = useMemo(() => {
     const total = scoredTxns.length;
     const critical = scoredTxns.filter((x) => (x.cbsi || 0) >= 70).length;
@@ -368,7 +444,6 @@ export default function App() {
     return { total, critical, high, fraud, avg };
   }, [scoredTxns, confirmedIncidents]);
 
-  // ── Nav Items ──────────────────────────────────────────────
   const NAV = [
     { id: "command", label: "Command Centre", icon: Shield },
     { id: "roster", label: "Employee Roster", icon: Users },
@@ -377,23 +452,34 @@ export default function App() {
     { id: "graph", label: "Fund Flow Graph", icon: GitBranch },
     { id: "evidence", label: "Evidence Vault", icon: FileText },
   ];
-  const honeypotBreach = {
-    accountId: "ACC_GHOST_07",
-    attackerId: "EMP_1024",
-    attackerRole: "IT Admin",
-    threatOrigin: "EMP_1024 (IT Admin) | IP: 192.168.1.45 (Mumbai_BR_05)"
+
+  const handleLogin = (token, user) => {
+    authStore.setAuth(token, user);
+    setIsAuthenticated(true);
+    setUser(user);
   };
+
+  const handleLogout = () => {
+    authStore.clearAuth();
+    setIsAuthenticated(false);
+    setUser(null);
+  };
+
+  if (!isAuthenticated) {
+    return <LoginPage onLogin={handleLogin} t={t} />;
+  }
 
   return (
     <div className="flex min-h-screen" style={{ background: t.bg, color: t.text }}>
-      {/* ══════ SIDEBAR ══════ */}
       <aside
-        className="w-60 flex-shrink-0 flex flex-col border-r fixed h-screen overflow-y-auto z-50"
+        className="w-60 h-screen fixed left-0 top-0 flex flex-col z-20 shadow-xl border-r"
         style={{ background: t.card, borderColor: t.border }}
       >
-        <div className="text-center py-5 border-b" style={{ borderColor: t.border }}>
-          <div className="text-lg font-bold tracking-[2px]" style={{ color: t.text }}>VAULTMIND</div>
-          <div className="text-[10px] tracking-[3px]" style={{ color: t.text2 }}>FRAUD INTELLIGENCE 2.0</div>
+        <div className="flex items-center justify-between py-5 px-4 border-b" style={{ borderColor: t.border }}>
+          <div>
+            <div className="text-lg font-bold tracking-[2px]" style={{ color: t.text }}>VAULTMIND</div>
+            <div className="text-[10px] tracking-[3px]" style={{ color: t.text2 }}>FRAUD INTELLIGENCE 2.0</div>
+          </div>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1">
@@ -414,6 +500,13 @@ export default function App() {
         </nav>
 
         <div className="px-4 pb-4 space-y-3 border-t pt-4" style={{ borderColor: t.border }}>
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors cursor-pointer text-red-500 border-red-500/20 bg-red-500/5 hover:bg-red-500/10"
+          >
+            <LogOut size={14} />
+            Logout
+          </button>
           <button
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium transition-colors cursor-pointer"
@@ -447,13 +540,10 @@ export default function App() {
         </div>
       </aside>
 
-      {/* ══════ MAIN CONTENT ══════ */}
       <main
         className="flex-1 ml-60 p-6 space-y-6 overflow-y-auto min-h-screen"
         style={{ transition: "all 0.5s ease-in-out" }}
       >
-
-        {/* ── COMMAND CENTRE ──────────────────────────────── */}
         {page === "command" && (
           <div className="space-y-6">
             <div className="flex items-center gap-3">
@@ -510,7 +600,7 @@ export default function App() {
                               <span className="text-lg font-bold font-mono" style={{ color: c }}>{tx.cbsi}</span>
                             </div>
                           </div>
-                          <EnforcementMatrix emp_id={tx.emp_id} onConfirm={handleConfirmIncident} />
+                          <EnforcementMatrix emp_id={tx.emp_id} onConfirm={handleConfirmIncident} userRole={userRole} onToast={showToast} />
                         </Card>
                       );
                     });
@@ -679,7 +769,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ── EMPLOYEE ROSTER ─────────────────────────────── */}
         {page === "roster" && (
           <div className="space-y-4">
             <h1 className="text-2xl font-bold">Employee Roster</h1>
@@ -768,7 +857,6 @@ export default function App() {
           </div>
         )}
 
-        {/* ── EMPLOYEE PROFILE ────────────────────────────── */}
         {page === "profile" && (
           <div className="space-y-4">
             <h1 className="text-2xl font-bold">Employee Profile Search</h1>
@@ -795,7 +883,6 @@ export default function App() {
                 if (!emp && !txns.length) return <div className="text-sm" style={{ color: t.amber }}>No data found for {eid}.</div>;
 
                 let peak = txns.length ? Math.max(...txns.map((x) => x.cbsi)) : 0;
-                // CRITICAL: If this is the attacker (EMP_1024), set score to 100 (Critical)
                 if (eid === "EMP_1024") {
                   peak = 100;
                 }
@@ -804,10 +891,7 @@ export default function App() {
                 const isConfirmed = confirmedIncidents.some((inc) => inc.emp_id === eid);
                 const displayRole = eid === "EMP_1024" ? "IT Admin" : (emp?.emp_class || "Unknown");
                 const isDanger = peak >= 75;
-                const borderColor = isDanger ? t.red : t.green;
-                const bgColor = isDanger ? "bg-red-500/10" : "bg-emerald-500/10";
 
-                // Daily trend
                 const dailyMap = {};
                 txns.forEach((tx) => {
                   const d = tx?.timestamp?.slice(0, 10);
@@ -860,28 +944,55 @@ export default function App() {
                           <Badge tier={tier} t={t} />
                         </div>
                       </div>
-                      <div className="mt-4 flex items-center gap-3">
-                        <button
-                          onClick={() => handleConfirmIncident(eid)}
-                          disabled={isConfirmed || isFalseAlarm}
-                          className="px-3 py-1.5 text-[10px] font-mono font-bold border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white transition-colors uppercase rounded-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          [ CONFIRM INCIDENT ]
-                        </button>
-                                 <button
-                                   onClick={() => handleFalseAlarm(eid)}
-                                   disabled={isFalseAlarm || isConfirmed}
-                                   className="px-3 py-1.5 text-[10px] font-mono font-bold border border-[#FFB300] text-[#FFB300] hover:bg-[#FFB300] hover:text-black transition-colors uppercase rounded-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                                 >
-                                   {isFalseAlarm ? "[ RETRAINING AI... ]" : "[ FALSE ALARM / RETRAIN ]"}
-                                 </button>
-                        {isConfirmed && (
-                          <span className="text-[10px] font-mono font-bold text-[#00E676] uppercase tracking-widest">
-                            INCIDENT CONFIRMED
-                          </span>
-                        )}
-                      </div>
+                      {userRole !== 'analyst' ? (
+                        <div className="mt-4 flex items-center gap-3 flex-wrap">
+                          <button
+                            onClick={() => handleConfirmIncident(eid)}
+                            disabled={isConfirmed || isFalseAlarm}
+                            className="px-3 py-1.5 text-[10px] font-mono font-bold border border-[#E50914] text-[#E50914] hover:bg-[#E50914] hover:text-white transition-colors uppercase rounded-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            [ CONFIRM INCIDENT ]
+                          </button>
+                          <button
+                            onClick={() => handleFalseAlarm(eid)}
+                            disabled={isFalseAlarm || isConfirmed}
+                            className="px-3 py-1.5 text-[10px] font-mono font-bold border border-[#FFB300] text-[#FFB300] hover:bg-[#FFB300] hover:text-black transition-colors uppercase rounded-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isFalseAlarm ? "[ RETRAINING AI... ]" : "[ FALSE ALARM / RETRAIN ]"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              const pdfUrl = `/api/evidence/download?emp_id=${eid}`;
+                              forceDownloadPDF(pdfUrl, eid);
+                            }}
+                            className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"
+                          >
+                            [ 📥 DOWNLOAD DOSSIER ]
+                          </button>
+                          {isConfirmed && (
+                            <span className="text-[10px] font-mono font-bold text-[#00E676] uppercase tracking-widest">
+                              INCIDENT CONFIRMED
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="mt-4 flex items-center gap-3 flex-wrap">
+                          <span className="text-[10px] font-mono font-bold text-gray-500 tracking-widest">[ ANALYST: VIEW-ONLY MODE ]</span>
+                          <button
+                            onClick={() => {
+                              const pdfUrl = `/api/evidence/download?emp_id=${eid}`;
+                              forceDownloadPDF(pdfUrl, eid);
+                            }}
+                            className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"
+                          >
+                            [ 📥 DOWNLOAD DOSSIER ]
+                          </button>
+                        </div>
+                      )}
                     </Card>
+
+                    <GNNThreatNode isCritical={peak >= 85} />
+                    <HistoricalContext emp_id={eid} />
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 my-4">
                       <ShapSimulator initialScore={peak} isCritical={peak > 75} />
@@ -891,7 +1002,23 @@ export default function App() {
                     {(tier === "CRITICAL" || tier === "HIGH" || eid === "EMP_1024" || eid === "EMP_1024_HONEYPOT") && (
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 my-4">
                         <BlastRadius targetId={eid} />
-                        <ForensicTimeline events={flaggedTxns.map(tx => ({ time: tx.timestamp.slice(11, 19), text: `${tx.action_type} - Rs.${(tx.amount || 0).toLocaleString()}`, tier: riskTier(tx.cbsi) })).slice(0, 5)} />
+                        <ForensicTimeline events={(() => {
+                          // Use all flagged transactions first (sorted by time, most recent last)
+                          const sorted = [...flaggedTxns].sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+                          // If fewer than 3 flagged, backfill with recent employee txns
+                          let pool = sorted;
+                          if (sorted.length < 3) {
+                            const recentTxns = [...txns]
+                              .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''))
+                              .filter(tx => !sorted.some(s => s.transaction_id === tx.transaction_id));
+                            pool = [...recentTxns.slice(-10), ...sorted];
+                          }
+                          return pool.slice(-15).map(tx => ({
+                            time: tx.timestamp ? tx.timestamp.slice(11, 19) : 'N/A',
+                            text: `${tx.action_type} - Rs.${(tx.amount || 0).toLocaleString()}`,
+                            tier: riskTier(tx.cbsi)
+                          }));
+                        })()} />
                       </div>
                     )}
 
@@ -903,18 +1030,31 @@ export default function App() {
           </div>
         )}
 
-        {/* ── EVIDENCE VAULT ──────────────────────────────── */}
         {page === "evidence" && (() => {
-          const totalPages = Math.max(1, Math.ceil(vaultEvidence.length / EVIDENCE_PER_PAGE));
+          const filteredEvidence = vaultEvidence.filter(evd => 
+            (evd.emp_id || "").toLowerCase().includes(evidenceSearch.toLowerCase())
+          );
+          const totalPages = Math.max(1, Math.ceil(filteredEvidence.length / EVIDENCE_PER_PAGE));
           const evPage = Math.min(evidencePage, totalPages);
-          const evSlice = vaultEvidence.slice((evPage - 1) * EVIDENCE_PER_PAGE, evPage * EVIDENCE_PER_PAGE);
+          const evSlice = filteredEvidence.slice((evPage - 1) * EVIDENCE_PER_PAGE, evPage * EVIDENCE_PER_PAGE);
           return (
             <div className="space-y-4">
               <h1 className="text-2xl font-bold">Evidence Vault</h1>
 
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-3" style={{ color: t.text2 }} />
+                <input 
+                  value={evidenceSearch} 
+                  onChange={(e) => { setEvidenceSearch(e.target.value); setEvidencePage(1); }}
+                  placeholder="🔍 Search by EMP_ID..." 
+                  className="w-full rounded-lg border pl-9 pr-3 py-2 text-sm"
+                  style={{ background: t.card, borderColor: t.border, color: t.text }} 
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
-                <KpiCard title="PDF Evidence Packages" value={String(vaultEvidence.length)} color={t.teal} t={t} />
-                <KpiCard title="STR JSON Filings" value={String(vaultEvidence.length)} color={t.cyan} t={t} />
+                <KpiCard title="PDF Evidence Packages" value={String(filteredEvidence.length)} color={t.teal} t={t} />
+                <KpiCard title="STR JSON Filings" value={String(filteredEvidence.length)} color={t.cyan} t={t} />
               </div>
 
               <Section title="Verified STR Evidence Packages (Agent 7)" t={t} />
@@ -951,34 +1091,15 @@ export default function App() {
                             <span className="text-xs text-[#FFB300] font-bold animate-pulse">PENDING DOSSIER</span>
                           ) : (
                             <button
-                              onClick={async () => {
-                                setDownloading(evd.filename);
-                                try {
-                                  const cleanFilename = evd.filename.split('\\').pop().split('/').pop();
-                                  const response = await fetch(`http://localhost:8000/api/evidence/download?filename=${encodeURIComponent(cleanFilename)}`);
-                                  if (response.ok) {
-                                    const blob = await response.blob();
-                                    const url = window.URL.createObjectURL(blob);
-                                    const a = document.createElement('a');
-                                    a.href = url;
-                                    a.download = cleanFilename;
-                                    document.body.appendChild(a);
-                                    a.click();
-                                    a.remove();
-                                    window.URL.revokeObjectURL(url);
-                                  } else {
-                                    alert("Evidence PDF not found on server.");
-                                  }
-                                } catch(e) {
-                                  console.error("Download error:", e);
-                                }
-                                setDownloading(null);
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const cleanFilename = evd.filename.split('\\').pop().split('/').pop();
+                                const pdfUrl = `/api/evidence/download?filename=${encodeURIComponent(cleanFilename)}`;
+                                forceDownloadPDF(pdfUrl, evd.emp_id);
                               }}
-                              className="flex items-center gap-2 px-3 py-1.5 rounded bg-[#E50914] text-white text-[10px] uppercase font-bold hover:bg-red-700 transition cursor-pointer"
-                              disabled={downloading === evd.filename}
+                              className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"
                             >
-                              {downloading === evd.filename ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                              Download
+                              [ 📥 DOWNLOAD EVIDENCE ]
                             </button>
                           )}
                         </td>
@@ -989,7 +1110,7 @@ export default function App() {
               </Card>
 
               <div className="flex justify-between items-center text-xs" style={{ color: t.text2 }}>
-                <span>Showing {(evPage - 1) * EVIDENCE_PER_PAGE + 1}–{Math.min(evPage * EVIDENCE_PER_PAGE, vaultEvidence.length)} of {vaultEvidence.length}</span>
+                <span>Showing {(evPage - 1) * EVIDENCE_PER_PAGE + 1}–{Math.min(evPage * EVIDENCE_PER_PAGE, filteredEvidence.length)} of {filteredEvidence.length}</span>
                 <div className="flex items-center gap-3">
                   <button onClick={() => setEvidencePage(Math.max(1, evPage - 1))} disabled={evPage <= 1}
                     className="p-1.5 rounded border cursor-pointer disabled:opacity-30" style={{ borderColor: t.border, color: t.text2 }}>
@@ -1149,7 +1270,7 @@ export default function App() {
                           <tbody className="divide-y divide-[#222]">
                             {/* Live breach rows from real data */}
                             {honeypotBreaches.slice(-5).reverse().map((tx, i) => (
-                              <tr key={tx.transaction_id || i} className="hover:bg-[#1a1a1a] transition-colors bg-[#2a1313]">
+                              <tr key={`${tx.transaction_id || i}-${i}`} className="hover:bg-[#1a1a1a] transition-colors bg-[#2a1313]">
                                 <td className="p-4 text-[#E50914] font-bold">{tx.account_touched}</td>
                                 <td className="p-4">Rs.{(tx.amount || 0).toLocaleString()}</td>
                                 <td className="p-4 text-xs text-[#E50914] font-bold animate-pulse">
@@ -1214,6 +1335,7 @@ export default function App() {
             THREAT LEVEL: <span className="text-[#E50914] font-bold ml-1">ELEVATED</span>
           </div>
         </div>
+        <Toast message={toastMessage} visible={toastVisible} onClose={() => setToastVisible(false)} />
       </main>
     </div>
   );

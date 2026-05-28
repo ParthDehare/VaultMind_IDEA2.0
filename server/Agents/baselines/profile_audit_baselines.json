@@ -1,0 +1,7 @@
+{
+    "role_limits": {
+        "CLERK": 200000,
+        "IT_ADMIN": 0,
+        "MANAGER": 1000000
+    }
+}

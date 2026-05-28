@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
+import { authStore } from '../authStore';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS — centralised, no hardcoding inside render
@@ -7,31 +8,31 @@ import ForceGraph2D from 'react-force-graph-2d';
 
 // Gap 2 Fix: Set-based O(1) honeypot lookup — no brittle string matching
 const DEFAULT_HONEYPOT_IDS = new Set([
-  'ACC-MIRAGE-001', 'ACC-MIRAGE-002', 'ACC-MIRAGE-003',
-  'ACC-MIRAGE-004', 'ACC-MIRAGE-005', 'ACC-GHOST-07',
-  'ACC_GHOST_07',   'ACC-DECOY-001',
+  'ACC-MIRAGE-001', 'ACC-MIRAGE-002', 'ACC-MIRAGE-003',
+  'ACC-MIRAGE-004', 'ACC-MIRAGE-005', 'ACC-GHOST-07',
+  'ACC_GHOST_07',   'ACC-DECOY-001',
 ]);
 
 const CBSI_ATTACKER_THRESHOLD = 85; // Gap 1 Fix: dynamic threshold, not hardcoded ID
-const CBSI_FRAUD_THRESHOLD    = 70;
+const CBSI_FRAUD_THRESHOLD    = 70;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // BREACH TIMELINE — used inside IncidentPanel for attacker/honeypot nodes
 // ─────────────────────────────────────────────────────────────────────────────
 const BREACH_EVENTS = [
-  { time: '01:58 AM', title: 'Anomalous Login Detected',    detail: 'Authenticated from Tor exit node IP 185.220.101.47 — outside India.',                         severity: 'warn'     },
-  { time: '02:00 AM', title: 'Off-Hours Access Window',      detail: 'Login 6 h outside approved window (08:00–20:00). BehaviourWatch +28 pts.',                     severity: 'warn'     },
-  { time: '02:15 AM', title: 'Bulk Record Extraction',       detail: '4,847 sequential DB reads — 42× above CLERK peer average.',                                    severity: 'high'     },
-  { time: '02:17 AM', title: 'Honeypot Contact Confirmed',   detail: 'Direct UI access to decoy account. Dwell: 12.4 s. Session: HUMAN. DeceptionGuard fires.',      severity: 'critical' },
-  { time: '02:18 AM', title: 'Orchestrator Correlation',     detail: 'BehaviourWatch (92) + DeceptionGuard (100) + NetworkIntel (88) → Unified CBSI 100.',          severity: 'critical' },
-  { time: '02:25 AM', title: 'CBSI 100 — Evidence Anchored', detail: 'SHA-256 anchored on block #47. STR auto-filed to FIU-IND. Access suspended.',                severity: 'terminal' },
+  { time: '01:58 AM', title: 'Anomalous Login Detected',    detail: 'Authenticated from Tor exit node IP 185.220.101.47 — outside India.',                        severity: 'warn'     },
+  { time: '02:00 AM', title: 'Off-Hours Access Window',     detail: 'Login 6 h outside approved window (08:00–20:00). BehaviourWatch +28 pts.',                     severity: 'warn'     },
+  { time: '02:15 AM', title: 'Bulk Record Extraction',       detail: '4,847 sequential DB reads — 42× above CLERK peer average.',                                     severity: 'high'     },
+  { time: '02:17 AM', title: 'Honeypot Contact Confirmed',   detail: 'Direct UI access to decoy account. Dwell: 12.4 s. Session: HUMAN. DeceptionGuard fires.',      severity: 'critical' },
+  { time: '02:18 AM', title: 'Orchestrator Correlation',     detail: 'BehaviourWatch (92) + DeceptionGuard (100) + NetworkIntel (88) → Unified CBSI 100.',         severity: 'critical' },
+  { time: '02:25 AM', title: 'CBSI 100 — Evidence Anchored', detail: 'SHA-256 anchored on block #47. STR auto-filed to FIU-IND. Access suspended.',               severity: 'terminal' },
 ];
 
 const SEV_STYLE = {
-  warn:     { dot: '#f59e0b', text: '#f59e0b', border: 'rgba(245,158,11,0.25)'  },
-  high:     { dot: '#f97316', text: '#f97316', border: 'rgba(249,115,22,0.25)'  },
-  critical: { dot: '#ef4444', text: '#ef4444', border: 'rgba(239,68,68,0.30)'   },
-  terminal: { dot: '#dc2626', text: '#fca5a5', border: 'rgba(220,38,38,0.50)'   },
+  warn:     { dot: '#f59e0b', text: '#f59e0b', border: 'rgba(245,158,11,0.25)'  },
+  high:     { dot: '#f97316', text: '#f97316', border: 'rgba(249,115,22,0.25)'  },
+  critical: { dot: '#ef4444', text: '#ef4444', border: 'rgba(239,68,68,0.30)'   },
+  terminal: { dot: '#dc2626', text: '#fca5a5', border: 'rgba(220,38,38,0.50)'   },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -100,7 +101,9 @@ function IncidentPanel({ node, allTxns, onClose }) {
   // API Handlers (Safe from crashes)
   const handleDownloadPDF = async () => {
     try {
-      const response = await fetch(`http://localhost:8000/api/evidence/download?emp_id=${node.id}`);
+      const response = await fetch(`/api/evidence/download?emp_id=${node.id}`, {
+        headers: authStore.getAuthHeaders()
+      });
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -123,9 +126,9 @@ function IncidentPanel({ node, allTxns, onClose }) {
 
   const handleFileSTR = async () => {
     try {
-      const response = await fetch(`http://localhost:8000/api/evidence/file-str`, {
+      const response = await fetch(`/api/evidence/file-str`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authStore.getAuthHeaders(),
         body: JSON.stringify({ emp_id: node.id, cbsi_score: maxCbsi })
       });
       return response.ok;
@@ -256,7 +259,9 @@ function IncidentPanel({ node, allTxns, onClose }) {
       {(node.isAttacker || node.isHoneypot) && (
         <div style={{ padding:'12px 14px', borderTop:'1px solid rgba(255,255,255,0.05)', display:'flex', gap:8 }}>
           <ActionButton label="Generate Evidence PDF" successLabel="Generated ✓" accent="red" onClick={handleDownloadPDF} />
-          <ActionButton label="File STR to FIU-IND"   successLabel="Filed ✓"     accent="neutral" onClick={handleFileSTR} />
+          {authStore.getUser()?.role !== 'analyst' && (
+            <ActionButton label="File STR to FIU-IND" successLabel="Filed ✓" accent="neutral" onClick={handleFileSTR} />
+          )}
         </div>
       )}
     </div>
@@ -273,6 +278,7 @@ function Legend() {
     { color:'#FF5722',           sym:'●', label:'Flagged employee' },
     { color:'#00B4D8',           sym:'●', label:'Normal employee'  },
     { color:'#555555',           sym:'●', label:'Normal account'   },
+    { color:'#EF4444',           sym:'- -', label:'Lateral Movement (Shared IP)' },
     { color:'#E50914',           sym:'—', label:'Fraud flow'       },
     { color:'rgba(85,85,85,0.6)',sym:'—', label:'Normal flow'      },
   ];
@@ -294,6 +300,13 @@ function Legend() {
 // ─────────────────────────────────────────────────────────────────────────────
 function LinkTooltip({ link, pos }) {
   if (!link || !pos) return null;
+  if (link.isLateral) {
+    return (
+      <div style={{ position:'absolute', left:pos.x+14, top:pos.y-32, zIndex:40, background:'#111', border:'1px solid rgba(239,68,68,0.3)', borderRadius:6, padding:'5px 10px', pointerEvents:'none', fontFamily:'monospace', fontSize:11, color:'#fca5a5', whiteSpace:'nowrap' }}>
+        ⚠️ Shared VPN IP: {link.sharedIp}
+      </div>
+    );
+  }
   return (
     <div style={{ position:'absolute', left:pos.x+14, top:pos.y-32, zIndex:40, background:'#111', border:'1px solid rgba(255,255,255,0.10)', borderRadius:6, padding:'5px 10px', pointerEvents:'none', fontFamily:'monospace', fontSize:11, color:'#e5e7eb', whiteSpace:'nowrap' }}>
       ₹{(link.amount||0).toLocaleString('en-IN')}
@@ -365,6 +378,9 @@ export default function FundFlowGraph({ liveTxns, honeypotIds, attackerThreshold
     const nodesMap = prevNodesRef.current; // <--- NAYE MAP KI JAGAH PURANA MAP USE KIYA
     const linksMap = new Map();
     const visible  = Array.isArray(liveTxns) ? liveTxns.slice(0, Math.max(stepIndex, 1)) : [];
+    
+    // LATERAL MOVEMENT: Map IPs to sets of employees
+    const ipToEmployees = new Map();
 
     visible.forEach(tx => {
       if (!tx.emp_id || !tx.account_touched) return;
@@ -374,6 +390,12 @@ export default function FundFlowGraph({ liveTxns, honeypotIds, attackerThreshold
       const isFraud   = cbsi >= CBSI_FRAUD_THRESHOLD  || tx.is_fraud_flag === 1;
       const isAttacker= cbsi >= cbsiThreshold          || tx.is_fraud_flag === 1; 
       const isHoneypot= honeypotSet.has(accId);                                   
+
+      // Track IP for lateral movement (ignore 0.0.0.0 or empty)
+      if (tx.vpn_ip && tx.vpn_ip !== '0.0.0.0') {
+        if (!ipToEmployees.has(tx.vpn_ip)) ipToEmployees.set(tx.vpn_ip, new Set());
+        ipToEmployees.get(tx.vpn_ip).add(empId);
+      }
 
       if (!nodesMap.has(empId)) {
         nodesMap.set(empId, { id: empId, group: 'employee', isAttacker, isFraud, cbsi });
@@ -394,6 +416,29 @@ export default function FundFlowGraph({ liveTxns, honeypotIds, attackerThreshold
         l.amount += tx.amount || 0;
         l.weight += 1;
         if (isFraud) l.isFraud = true;
+      }
+    });
+
+    // LATERAL MOVEMENT: Create dashed edges between employees sharing an IP
+    ipToEmployees.forEach((empSet, ip) => {
+      if (empSet.size > 1) {
+        const emps = Array.from(empSet);
+        for (let i = 0; i < emps.length; i++) {
+          for (let j = i + 1; j < emps.length; j++) {
+            const lid = `LATERAL:${emps[i]}<->${emps[j]}`;
+            if (!linksMap.has(lid)) {
+              linksMap.set(lid, {
+                source: emps[i],
+                target: emps[j],
+                isLateral: true,
+                sharedIp: ip,
+                isFraud: true, // Flag as suspicious natively
+                amount: 0,
+                weight: 1
+              });
+            }
+          }
+        }
       }
     });
 
@@ -534,9 +579,10 @@ export default function FundFlowGraph({ liveTxns, honeypotIds, attackerThreshold
         nodeCanvasObjectMode={() => 'replace'}
         onNodeClick={handleNodeClick}
         onLinkHover={handleLinkHover}
-        linkColor={link => link.isFraud ? 'rgba(229,9,20,0.75)' : 'rgba(85,85,85,0.35)'}
-        linkWidth={link => (link.isFraud ? 2.5 : 0.8) * Math.min(Math.sqrt(link.weight), 4)}
-        linkDirectionalParticles={link => link.isFraud ? 4 : 0}
+        linkColor={link => link.isLateral ? 'rgba(239,68,68,0.85)' : link.isFraud ? 'rgba(229,9,20,0.75)' : 'rgba(85,85,85,0.35)'}
+        linkWidth={link => link.isLateral ? 2.5 : (link.isFraud ? 2.5 : 0.8) * Math.min(Math.sqrt(link.weight), 4)}
+        linkLineDash={link => link.isLateral ? [4, 4] : null}
+        linkDirectionalParticles={link => link.isLateral ? 0 : link.isFraud ? 4 : 0}
         linkDirectionalParticleSpeed={0.004}
         linkDirectionalParticleColor={link => link.isFraud ? '#E50914' : '#00B4D8'}
         nodePointerAreaPaint={(node, color, ctx) => {

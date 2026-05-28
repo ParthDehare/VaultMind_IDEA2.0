@@ -63,6 +63,8 @@ import os
 import warnings
 from typing import Tuple, Dict
 
+from core.ml_models import ml_models
+
 # ---------------------------------------------------------------------------
 # CONSTANTS
 # ---------------------------------------------------------------------------
@@ -723,11 +725,27 @@ class NetworkIntel:
             }
 
         # ── 1. Feature extraction with safe defaults ──────────────────────
+        emp_id           = str(transaction.get("emp_id", "UNKNOWN"))
         emp_class        = str(transaction.get("emp_class",     "DEFAULT")).upper().strip()
         system_action    = str(transaction.get("system_action", "READ")).strip()
         records_accessed = float(transaction.get("records_accessed", 0.0))
         login_hour       = int(transaction.get("login_hour", 9))
         login_hour       = max(0, min(23, login_hour))  # clamp
+
+        # ── NEW: Try trained PyTorch GNN FIRST ──
+        try:
+            gnn_score = ml_models.predict_gnn(emp_id)
+            if gnn_score >= 0:
+                cbsi = int(gnn_score)
+                signal = "CRITICAL_GNN_ANOMALY" if cbsi >= 80 else "GNN_ANOMALY"
+                reason = f"[ML-PREDICTED] Graph Neural Network identified structural anomaly score: {cbsi}/100 for {emp_id}."
+                return {
+                    "severity_index": cbsi,
+                    "signal":         signal,
+                    "reason":         reason
+                }
+        except Exception:
+            pass # Fall through to rules
 
         # ── 2. Dimension A — Privilege Escalation Score (O(1) lookups) ───
         pes_score, raw_weight = self._compute_pes(emp_class, system_action)

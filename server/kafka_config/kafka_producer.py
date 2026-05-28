@@ -1,14 +1,18 @@
 # vaultmind_producer.py
 import time
 import json
+from pathlib import Path
 import pandas as pd
 from kafka import KafkaProducer
 
+import uuid
+
 # Initialize Kafka Producer
 # Make sure to run: pip install kafka-python pandas
+import os
 try:
     producer = KafkaProducer(
-        bootstrap_servers=['localhost:9092'],
+        bootstrap_servers=[os.environ.get('KAFKA_BROKER', 'localhost:9092')],
         value_serializer=lambda v: json.dumps(v).encode('utf-8'),
         api_version=(2, 5, 0)
     )
@@ -18,7 +22,8 @@ except Exception as e:
     exit()
 
 TOPIC_NAME = 'live-transactions'
-CSV_FILE = r'D:\DEmo\server\data\Testing_data\live_demo_stream.csv'
+BASE_DIR = Path(__file__).resolve().parent.parent
+CSV_FILE = str(BASE_DIR / "data" / "Testing_data" / "live_demo_stream.csv")
 
 def stream_data():
     print(f"[INFO] Starting Live Stream from {CSV_FILE} to Kafka Topic: {TOPIC_NAME}...")
@@ -26,15 +31,19 @@ def stream_data():
         # Load the mock dataset
         df = pd.read_csv(CSV_FILE)
         
-        for index, row in df.iterrows():
-            transaction = row.to_dict()
-            
-            # Send to Kafka
-            producer.send(TOPIC_NAME, transaction)
-            print(f"[STREAM] Sent Tx: {transaction.get('transaction_id', 'UNKNOWN')} | Acc: {transaction.get('source_account', 'N/A')}")
-            
-            # Simulate real-time delay (1.5 seconds per transaction)
-            time.sleep(1.5)
+        while True:
+            for index, row in df.iterrows():
+                transaction = row.to_dict()
+                
+                # Regenerate transaction ID for infinite looping
+                transaction['transaction_id'] = str(uuid.uuid4())
+                
+                # Send to Kafka
+                producer.send(TOPIC_NAME, transaction)
+                print(f"[STREAM] Sent Tx: {transaction.get('transaction_id', 'UNKNOWN')} | Acc: {transaction.get('source_account', 'N/A')}")
+                
+                # Simulate real-time delay (1.5 seconds per transaction)
+                time.sleep(1.5)
             
     except FileNotFoundError:
         print(f"[ERROR] Could not find {CSV_FILE}. Please make sure the dataset exists.")

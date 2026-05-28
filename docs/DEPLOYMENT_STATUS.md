@@ -83,7 +83,7 @@ GET /get-next-transaction
 ✅ Columns: timestamp, transaction_id, emp_id, emp_class, 
             branch_id, action_type, amount, account_touched,
             ip_address, transfer_channel, remarks, is_fraud_flag
-✅ Location: Testing_data/
+✅ Location: server/data/Testing_data/
 ✅ Format: CSV (pandas-compatible)
 ```
 
@@ -91,7 +91,7 @@ GET /get-next-transaction
 ```
 ✅ 5,000 live stream transactions
 ✅ Same schema as historical
-✅ Location: Testing_data/
+✅ Location: server/data/Testing_data/
 ✅ Index pointer managed by main.py
 ✅ Cycles through on repeat
 ```
@@ -130,7 +130,7 @@ GET /get-next-transaction
 ### start_backend.sh (Linux/Mac)
 ```
 ✅ Installs dependencies
-✅ Runs python main.py
+✅ Runs python server/main.py
 ✅ Backend on port 8000
 ```
 
@@ -184,10 +184,10 @@ Then open: **http://localhost:5173**
 ```bash
 # Terminal 1 - Backend
 cd d:\DEmo
-python main.py
+python server/main.py
 
 # Terminal 2 - Frontend
-cd d:\DEmo\frontend
+cd d:\DEmo\client
 npm run dev
 ```
 
@@ -198,7 +198,7 @@ Then open: **http://localhost:5173**
 ## **✅ VERIFICATION CHECKLIST**
 
 ### Backend
-- [ ] `python main.py` runs without errors
+- [ ] `python server/main.py` runs without errors
 - [ ] See "Data Fusion Engine Starting..."
 - [ ] See "47521 historical records"
 - [ ] See "5000 live stream transactions"
@@ -293,7 +293,7 @@ Then open: **http://localhost:5173**
 ### Next Step
 ```
 👉 Run: START_ALL.bat (Windows)
-   OR: python main.py + npm run dev
+   OR: python server/main.py + npm run dev
    OR: Follow QUICK_START.txt
 
 👉 Open: http://localhost:5173
@@ -333,6 +333,6 @@ Then open: **http://localhost:5173**
 
 **Status**: 🟢 PRODUCTION READY
 
-**Command**: `START_ALL.bat` or `python main.py`
+**Command**: `START_ALL.bat` or `python server/main.py`
 
 ---

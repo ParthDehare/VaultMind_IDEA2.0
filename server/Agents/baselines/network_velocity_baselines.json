@@ -1,0 +1,5 @@
+{
+    "max_tx_per_hour": 50,
+    "max_amount_per_day": 5000000,
+    "max_velocity": 100
+}

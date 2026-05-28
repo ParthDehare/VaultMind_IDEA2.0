@@ -17,11 +17,9 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-force-graph-2d": "^1.29.1",
-    "react-vis-network-graph": "^3.0.1",
     "recharts": "^3.8.1",
     "tailwindcss": "^4.3.0",
-    "vis-data": "^8.0.4",
-    "vis-network": "^10.1.0"
+    "zustand": "^5.0.13"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -20,7 +20,7 @@ This will:
 ```bash
 cd d:\DEmo
 pip install fastapi uvicorn pandas torch joblib
-python main.py
+python server/main.py
 ```
 
 Expected output:
@@ -35,7 +35,7 @@ Expected output:
 
 #### Terminal 2 - Frontend
 ```bash
-cd d:\DEmo\frontend
+cd d:\DEmo\client
 npm install
 npm run dev
 ```
@@ -112,7 +112,7 @@ taskkill /PID <PID> /F
 
 ### Frontend won't compile
 ```bash
-cd d:\DEmo\frontend
+cd d:\DEmo\client
 rm -r node_modules package-lock.json
 npm install
 npm run dev
@@ -151,12 +151,12 @@ Frontend (React on :5173)
 - `master_orchestrator.py` - ML pipeline
 
 ✅ **Frontend**
-- `frontend/src/App.jsx` - Refactored to API-driven
-- `frontend/src/data.js` - No longer used
+- `client/src/App.jsx` - Refactored to API-driven
+- `client/src/data.js` - No longer used
 
 ✅ **Data**
-- `Testing_data/historical_warmup_data.csv` - 47k historical records
-- `Testing_data/live_demo_stream.csv` - 5k live transactions
+- `server/data/Testing_data/historical_warmup_data.csv` - 47k historical records
+- `server/data/Testing_data/live_demo_stream.csv` - 5k live transactions
 
 ---
 

@@ -295,7 +295,7 @@ All requirements met:
 
 Run with:
 ```bash
-python main.py
+python server/main.py
 ```
 
 ---

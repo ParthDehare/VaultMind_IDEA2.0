@@ -172,11 +172,11 @@ function extractNlpFlags(tx) {
 }
 
 // Generate all data
-const HISTORICAL = generateTransactions(40000, new Date("2025-10-01"), new Date("2026-02-28"), 0.021);
-const LIVE_STREAM = generateTransactions(8000, new Date("2026-03-01"), new Date("2026-03-30"), 0.02);
+// (Removed HISTORICAL and LIVE_STREAM generation to save memory)
 
 export {
-  EMPLOYEES, HISTORICAL, LIVE_STREAM,
+  EMPLOYEES,
+
   scoreTransaction, riskTier, getTriggeredRules, extractNlpFlags,
   SENTIMENT_KEYWORDS
 };
