@@ -364,7 +364,7 @@ export default function App() {
     const connect = () => {
       const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       // If deployed, point directly to your Cloudflare domain
-      const wsHost = isLocal ? 'localhost:8000' : (import.meta.env.VITE_API_DOMAIN || 'api.teradomain.me');
+      const wsHost = isLocal ? 'localhost:8000' : (import.meta.env.VITE_API_DOMAIN || 'api.vaultmind.systems');
       const wsProto = isLocal ? 'ws:' : 'wss:';
       ws = new WebSocket(`${wsProto}//${wsHost}/ws/alerts?token=${token}`);
       ws.onopen = () => {
