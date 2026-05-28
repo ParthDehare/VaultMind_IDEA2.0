@@ -98,7 +98,7 @@ export default function App() {
     if (!normalized) return;
     
     const headers = authStore.getAuthHeaders();
-    fetch(`/api/feedback/${normalized}`, {
+    fetch(`https://api.vaultmind.systems/api/feedback/${normalized}`, {
       method: "POST",
       headers,
       body: JSON.stringify({ action: "CONFIRM", feedback_text: "Incident confirmed by Auditor" })
@@ -116,7 +116,7 @@ export default function App() {
     if (!normalized) return;
     
     const headers = authStore.getAuthHeaders();
-    fetch(`/api/feedback/${normalized}`, {
+    fetch(`https://api.vaultmind.systems/api/feedback/${normalized}`, {
       method: "POST",
       headers,
       body: JSON.stringify({ action: "FALSE_ALARM", feedback_text: "Model retraining initiated by Auditor" })
@@ -284,11 +284,11 @@ export default function App() {
       };
 
       // Ensure stream is started if we refreshed the page and bypassed login
-      fetch("/api/system/start-stream", { method: "POST", headers })
+      fetch("https://api.vaultmind.systems/api/system/start-stream", { method: "POST", headers })
         .then(handleAuthError)
         .catch((err) => console.warn("Failed to auto-start stream", err));
 
-      fetch("/api/roster/employees", { headers })
+      fetch("https://api.vaultmind.systems/api/roster/employees", { headers })
         .then(handleAuthError)
         .then((data) => {
           if (data.employees && Array.isArray(data.employees)) {
@@ -301,7 +301,7 @@ export default function App() {
         })
         .catch((err) => console.warn("Employee metadata fetch failed", err));
 
-      fetch("/api/dashboard-init", { headers })
+      fetch("https://api.vaultmind.systems/api/dashboard-init", { headers })
         .then(handleAuthError)
         .then((payload) => {
           const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
@@ -338,7 +338,7 @@ export default function App() {
 
   const fetchNextTransaction = useCallback(() => {
     const headers = authStore.getAuthHeaders();
-    return fetch("/get-next-transaction", { headers })
+    return fetch("https://api.vaultmind.systems/get-next-transaction", { headers })
       .then((res) => {
         if (res.status === 401) {
           handleLogout();

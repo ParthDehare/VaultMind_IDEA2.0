@@ -14,7 +14,7 @@ export default function LoginPage({ onLogin, t }) {
     setError('');
     
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('https://api.vaultmind.systems/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -28,7 +28,7 @@ export default function LoginPage({ onLogin, t }) {
       
       // Start Kafka Stream in background after successful login
       try {
-        await fetch('/api/system/start-stream', {
+        await fetch('https://api.vaultmind.systems/api/system/start-stream', {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${data.access_token}` }
         });

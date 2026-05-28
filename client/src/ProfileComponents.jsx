@@ -94,7 +94,7 @@ export function GlassBoxEngine({ score = 100, emp_id = "EMP_1024", context = nul
       transaction_id: context?.transaction_id
     };
 
-    fetch(`/api/explain/${emp_id}`, {
+    fetch(`https://api.vaultmind.systems/api/explain/${emp_id}`, {
       method: "POST",
       headers: authStore.getAuthHeaders(),
       body: JSON.stringify(payload)
@@ -234,7 +234,7 @@ export function HistoricalContext({ emp_id }) {
   const [volume, setVolume] = useState(null);
   
   useEffect(() => {
-    fetch(`/api/profile/${emp_id}/history`, { headers: authStore.getAuthHeaders() })
+    fetch(`https://api.vaultmind.systems/api/profile/${emp_id}/history`, { headers: authStore.getAuthHeaders() })
       .then(res => res.json())
       .then(data => setVolume(data.seven_day_average))
       .catch(err => console.error(err));

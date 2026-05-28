@@ -101,7 +101,7 @@ function IncidentPanel({ node, allTxns, onClose }) {
   // API Handlers (Safe from crashes)
   const handleDownloadPDF = async () => {
     try {
-      const response = await fetch(`/api/evidence/download?emp_id=${node.id}`, {
+      const response = await fetch(`https://api.vaultmind.systems/api/evidence/download?emp_id=${node.id}`, {
         headers: authStore.getAuthHeaders()
       });
       if (response.ok) {
@@ -126,7 +126,7 @@ function IncidentPanel({ node, allTxns, onClose }) {
 
   const handleFileSTR = async () => {
     try {
-      const response = await fetch(`/api/evidence/file-str`, {
+      const response = await fetch(`https://api.vaultmind.systems/api/evidence/file-str`, {
         method: 'POST',
         headers: authStore.getAuthHeaders(),
         body: JSON.stringify({ emp_id: node.id, cbsi_score: maxCbsi })

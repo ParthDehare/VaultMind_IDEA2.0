@@ -21,7 +21,7 @@ export function EnforcementMatrix({ emp_id, onConfirm, userRole, onToast }) {
   const handleAction = async (actionType) => {
     if (actionType === "FALSE_ALARM") setStatus("recalibrating");
     try {
-      await fetch(`/api/feedback/${emp_id}`, {
+      await fetch(`https://api.vaultmind.systems/api/feedback/${emp_id}`, {
         method: "POST",
         headers: authStore.getAuthHeaders(),
         body: JSON.stringify({ action: actionType, feedback_text: `Marked as ${actionType} by user` })
