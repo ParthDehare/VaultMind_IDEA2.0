@@ -366,6 +366,7 @@ export default function App() {
       // If deployed, point directly to your Cloudflare domain
       const wsHost = isLocal ? 'localhost:8000' : (import.meta.env.VITE_API_DOMAIN || 'api.vaultmind.systems');
       const wsProto = isLocal ? 'ws:' : 'wss:';
+      const token = authStore.getToken();
       ws = new WebSocket(`${wsProto}//${wsHost}/ws/alerts?token=${token}`);
       ws.onopen = () => {
         if (!isMounted) { ws.close(); return; }
