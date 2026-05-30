@@ -2,6 +2,7 @@
 import json
 import asyncio
 import threading
+import uuid
 
 import os
 from fastapi.responses import FileResponse
@@ -73,9 +74,9 @@ def kafka_listener():
         consumer = KafkaConsumer(
             'live-transactions',
             bootstrap_servers=[os.getenv('KAFKA_BROKER', 'localhost:9092')],
-            group_id='vaultmind-group',
-            auto_offset_reset='earliest',
-            enable_auto_commit=True, # Ensure auto-commit is enabled for offset management
+            group_id=f'vaultmind-group-{uuid.uuid4()}',
+            auto_offset_reset='latest',
+            enable_auto_commit=False, # We just consume live and ignore offsets
             value_deserializer=lambda m: json.loads(m.decode('utf-8'))
         )
         print("Listening to Kafka Topic...")

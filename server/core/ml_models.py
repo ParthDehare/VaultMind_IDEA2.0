@@ -36,21 +36,23 @@ if TORCH_AVAILABLE:
         def __init__(self):
             super().__init__()
             # The state_dict has: conv1, conv2, edge_mlp
-            # We see weight shapes [32, 1] in conv1.lin_l meaning input is 1, output is 32.
             self.conv1 = MockSAGEConv(1, 32)
-            self.conv2 = MockSAGEConv(32, 16)
+            self.conv2 = MockSAGEConv(32, 32)
             
             self.edge_mlp = nn.Sequential(
-                nn.Linear(32, 16), # edge_mlp.0
+                nn.Linear(66, 32), # edge_mlp.0
                 nn.ReLU(),
-                nn.Linear(16, 1)   # edge_mlp.2
+                nn.Linear(32, 1)   # edge_mlp.2
             )
 
         def forward(self, node_features):
             x = torch.relu(self.conv1(node_features))
             x = self.conv2(x)
+            # Pad x from 32 to 66 features to match edge_mlp input size
+            pad = torch.zeros(x.size(0), 66 - 32, device=x.device)
+            x_padded = torch.cat([x, pad], dim=1)
             # Just a mock projection for score
-            score = self.edge_mlp[2](self.edge_mlp[0](x))
+            score = self.edge_mlp[2](self.edge_mlp[0](x_padded))
             return torch.sigmoid(score).item() * 100.0
 
 
