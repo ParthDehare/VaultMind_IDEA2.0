@@ -3,12 +3,14 @@ version: '3.8'
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.3.0
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
 
   kafka:
     image: confluentinc/cp-kafka:7.3.0
+    restart: unless-stopped
     depends_on:
       - zookeeper
     environment:
@@ -19,6 +21,7 @@ services:
 
   redis:
     image: redis:alpine
+    restart: unless-stopped
     ports:
       - "6379:6379"
 
@@ -27,7 +30,8 @@ services:
       context: .
       dockerfile: Dockerfile.api
     container_name: backend
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4
     ports:
       - "8000:8000" 
     env_file:
@@ -35,6 +39,7 @@ services:
     environment:
       - KAFKA_BROKER=kafka:9092
       - REDIS_HOST=redis
+      - PYTHONUNBUFFERED=1
     depends_on:
       - kafka
       - redis
@@ -44,10 +49,12 @@ services:
       context: .
       dockerfile: Dockerfile.api
     container_name: producer
+    restart: unless-stopped
     command: python kafka_config/kafka_producer.py
     env_file:
       - .env
     environment:
       - KAFKA_BROKER=kafka:9092
+      - PYTHONUNBUFFERED=1
     depends_on:
       - kafka
