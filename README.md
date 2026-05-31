@@ -32,7 +32,7 @@ This project addresses **PS1: AI-Driven Early Warning System for Internal & Priv
 |----------|------|
 | 🔗 **Frontend (Vercel)** | [https://www.vaultmind.systems](https://www.vaultmind.systems) |
 | 🔗 **Backend API (DigitalOcean)** | [https://api.vaultmind.systems/docs](https://api.vaultmind.systems/docs) |
-| 🎥 **Demo Video** | [Insert YouTube / Video Link] |
+| 🎥 **Demo Video** | [https://youtu.be/JmrkeSOWwvY](https://youtu.be/JmrkeSOWwvY) |
 
 > The backend is deployed on **DigitalOcean** and the frontend is deployed on **Vercel**.
 
