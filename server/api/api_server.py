@@ -172,6 +172,10 @@ def download_evidence(emp_id: Optional[str] = None, filename: Optional[str] = No
                 "transaction_id": f"SIM_{emp_id}_001"
             }
             generated_path = eb.generate_evidence_package(simulated_tx, 100, "Simulated anomaly detected via Fund Flow Graph")
+            if generated_path and generated_path.startswith("http"):
+                from fastapi.responses import RedirectResponse
+                return RedirectResponse(url=generated_path)
+            
             if generated_path and os.path.exists(generated_path):
                 return FileResponse(
                     path=generated_path,

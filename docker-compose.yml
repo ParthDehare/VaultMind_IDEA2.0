@@ -59,7 +59,7 @@ services:
     env_file:
       - .env
     environment:
-      - KAFKA_BROKER=kafka:9092
+      - KAFKA_BROKER=kafka:29092
       - PYTHONUNBUFFERED=1
     depends_on:
       - kafka
