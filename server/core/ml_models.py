@@ -156,12 +156,11 @@ class MLModelService:
         if self.gnn is None or self.account_mapping is None or self.edge_scaler is None or not TORCH_AVAILABLE:
             return -1
 
-        src = transaction.get("account_touched", "UNKNOWN")
-        dst = transaction.get("destination_account", "UNKNOWN")
+        emp_id = transaction.get("emp_id", "UNKNOWN")
         amt = float(transaction.get("amount", 0.0))
         dwell = float(transaction.get("dwell_time_seconds", 30.0))
 
-        if src not in self.account_mapping or dst not in self.account_mapping:
+        if emp_id not in self.account_mapping:
             return -1 # Fallback to rules if unknown entity
 
         try:
