@@ -27,33 +27,31 @@ if TORCH_AVAILABLE:
             self.lin_l = nn.Linear(in_channels, out_channels, bias=True)
             self.lin_r = nn.Linear(in_channels, out_channels, bias=False)
             
-        def forward(self, x):
-            # A true GNN passes messages between edges. 
-            # For inference/hackathon purposes, we do a feed-forward projection.
+        def forward(self, x, edge_index=None):
             return self.lin_l(x)
 
-    class FraudGNN(nn.Module):
-        def __init__(self):
-            super().__init__()
-            # The state_dict has: conv1, conv2, edge_mlp
-            self.conv1 = MockSAGEConv(1, 32)
-            self.conv2 = MockSAGEConv(32, 32)
+    class GraphSAGEEdgeClassifier(nn.Module):
+        def __init__(self, in_channels=1, hidden_channels=32, edge_in_channels=2):
+            super(GraphSAGEEdgeClassifier, self).__init__()
+            self.conv1 = MockSAGEConv(in_channels, hidden_channels)
+            self.conv2 = MockSAGEConv(hidden_channels, hidden_channels)
             
+            mlp_in = hidden_channels * 2 + edge_in_channels
             self.edge_mlp = nn.Sequential(
-                nn.Linear(66, 32), # edge_mlp.0
+                nn.Linear(mlp_in, hidden_channels),
                 nn.ReLU(),
-                nn.Linear(32, 1)   # edge_mlp.2
+                nn.Linear(hidden_channels, 1)
             )
 
-        def forward(self, node_features):
-            x = torch.relu(self.conv1(node_features))
-            x = self.conv2(x)
-            # Pad x from 32 to 66 features to match edge_mlp input size
-            pad = torch.zeros(x.size(0), 66 - 32, device=x.device)
-            x_padded = torch.cat([x, pad], dim=1)
-            # Just a mock projection for score
-            score = self.edge_mlp[2](self.edge_mlp[0](x_padded))
-            return torch.sigmoid(score).item() * 100.0
+        def forward(self, x, edge_index, edge_attr):
+            h = self.conv1(x, edge_index)
+            h = torch.relu(h)
+            h = self.conv2(h, edge_index)
+            src, dst = edge_index
+            src_emb = h[src]
+            dst_emb = h[dst]
+            edge_repr = torch.cat([src_emb, dst_emb, edge_attr], dim=1)
+            return self.edge_mlp(edge_repr).squeeze(-1)
 
 
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
@@ -65,6 +63,7 @@ class MLModelService:
         self.iso_forest = None        # Isolation Forest (Agent 1)
         self.scaler = None            # StandardScaler (Agent 1)
         self.account_mapping = None   # Account mapping dict
+        self.edge_scaler = None       # Edge scaler for GNN
         self._loaded = False
 
     def load_all(self):
@@ -94,7 +93,9 @@ class MLModelService:
         mapping_path = os.path.join(MODELS_DIR, "account_mapping.pkl")
         try:
             with open(mapping_path, "rb") as f:
-                self.account_mapping = pickle.load(f)
+                data = pickle.load(f)
+                self.account_mapping = data['account_mapping']
+                self.edge_scaler = data['edge_scaler']
             print(f"[MLModels] ✅ Loaded Account Mapping ({len(self.account_mapping)} entries)")
         except Exception as e:
             warnings.warn(f"[MLModels] ❌ Failed to load Account Mapping: {e}")
@@ -103,9 +104,9 @@ class MLModelService:
         gnn_path = os.path.join(MODELS_DIR, "agent2_gnn.pth")
         if TORCH_AVAILABLE:
             try:
-                self.gnn = FraudGNN()
+                self.gnn = GraphSAGEEdgeClassifier()
                 state_dict = torch.load(gnn_path, map_location=torch.device('cpu'), weights_only=True)
-                self.gnn.load_state_dict(state_dict, strict=False)
+                self.gnn.load_state_dict(state_dict, strict=True)
                 self.gnn.eval()
                 print(f"[MLModels] ✅ Loaded PyTorch GNN from {gnn_path}")
             except Exception as e:
@@ -140,32 +141,37 @@ class MLModelService:
         # Convert to 0-100 scale: more negative = higher risk
         # Typical IF scores range from -0.5 (anomaly) to +0.5 (normal)
         anomaly_score = int(min(100, max(0, (0.5 - raw_score) * 100)))
-        anomaly_score = int(min(100, max(0, (0.5 - raw_score) * 100)))
         return anomaly_score
 
-    def predict_gnn(self, emp_id: str) -> float:
+    def predict_gnn(self, transaction: dict) -> float:
         """
         Run PyTorch GNN prediction for NetworkIntel.
         
         Args:
-            emp_id: The employee ID (mapped to node index)
+            transaction: dict with transaction details
             
         Returns:
             Network threat score 0-100, or -1 if unavailable
         """
-        if self.gnn is None or self.account_mapping is None or not TORCH_AVAILABLE:
+        if self.gnn is None or self.account_mapping is None or self.edge_scaler is None or not TORCH_AVAILABLE:
             return -1
 
-        # Map emp_id to index
-        node_idx = self.account_mapping.get(emp_id, -1)
-        if node_idx == -1:
+        src = transaction.get("account_touched", "UNKNOWN")
+        dst = transaction.get("destination_account", "UNKNOWN")
+        amt = float(transaction.get("amount", 0.0))
+        dwell = float(transaction.get("dwell_time_seconds", 30.0))
+
+        if src not in self.account_mapping or dst not in self.account_mapping:
             return -1 # Fallback to rules if unknown entity
 
         try:
-            # Mock single-node inference input matching [1]
-            dummy_features = torch.tensor([[float(node_idx)]], dtype=torch.float32)
-            score = self.gnn(dummy_features)
-            return min(100.0, max(0.0, score))
+            x = torch.ones((2, 1), dtype=torch.float32)
+            edge_index = torch.tensor([[0], [1]], dtype=torch.long)
+            edge_attr_np = self.edge_scaler.transform(np.array([[amt, dwell]]))
+            edge_attr = torch.tensor(edge_attr_np, dtype=torch.float32)
+            
+            score = self.gnn(x, edge_index, edge_attr)
+            return min(100.0, max(0.0, torch.sigmoid(score).item() * 100.0))
         except Exception:
             return -1
 

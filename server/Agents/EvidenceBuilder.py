@@ -139,12 +139,7 @@ class EvidenceBuilder:
         now_str = datetime.now().strftime("%d %B %Y  |  %H:%M:%S IST")
 
         # 1. Update Blockchain
-        canonical = json.dumps({
-            "tx_id": str(transaction.get("transaction_id", "")),
-            "emp_id": emp_id,
-            "amount": str(transaction.get("amount", "")),
-            "score": cbsi_score
-        }, sort_keys=True)
+        canonical = json.dumps(transaction, sort_keys=True, default=str)
         data_hash = hashlib.sha256(canonical.encode()).hexdigest()
         
         prev = self.chain[-1]

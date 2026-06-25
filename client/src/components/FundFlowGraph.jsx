@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { authStore } from '../authStore';
+import { fetchWithAuth } from '../apiService';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CONSTANTS — centralised, no hardcoding inside render
@@ -101,9 +102,7 @@ function IncidentPanel({ node, allTxns, onClose }) {
   // API Handlers (Safe from crashes)
   const handleDownloadPDF = async () => {
     try {
-      const response = await fetch(`https://api.vaultmind.systems/api/evidence/download?emp_id=${node.id}`, {
-        headers: authStore.getAuthHeaders()
-      });
+      const response = await fetchWithAuth(`api/evidence/download?emp_id=${node.id}`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -126,9 +125,8 @@ function IncidentPanel({ node, allTxns, onClose }) {
 
   const handleFileSTR = async () => {
     try {
-      const response = await fetch(`https://api.vaultmind.systems/api/evidence/file-str`, {
+      const response = await fetchWithAuth(`api/evidence/file-str`, {
         method: 'POST',
-        headers: authStore.getAuthHeaders(),
         body: JSON.stringify({ emp_id: node.id, cbsi_score: maxCbsi })
       });
       return response.ok;

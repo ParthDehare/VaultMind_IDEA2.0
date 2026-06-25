@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Play, BrainCircuit, ShieldAlert, GitMerge } from "lucide-react";
 import { authStore } from "./authStore";
+import { fetchWithAuth } from "./apiService";
 import { motion, AnimatePresence } from "framer-motion";
 
 // --- 1. Forensic Timeline ("CCTV Playback") ---
@@ -94,9 +95,8 @@ export function GlassBoxEngine({ score = 100, emp_id = "EMP_1024", context = nul
       transaction_id: context?.transaction_id
     };
 
-    fetch(`https://api.vaultmind.systems/api/explain/${emp_id}`, {
+    fetchWithAuth(`api/explain/${emp_id}`, {
       method: "POST",
-      headers: authStore.getAuthHeaders(),
       body: JSON.stringify(payload)
     })
       .then((res) => res.json())
@@ -234,7 +234,7 @@ export function HistoricalContext({ emp_id }) {
   const [volume, setVolume] = useState(null);
   
   useEffect(() => {
-    fetch(`https://api.vaultmind.systems/api/profile/${emp_id}/history`, { headers: authStore.getAuthHeaders() })
+    fetchWithAuth(`api/profile/${emp_id}/history`)
       .then(res => res.json())
       .then(data => setVolume(data.seven_day_average))
       .catch(err => console.error(err));

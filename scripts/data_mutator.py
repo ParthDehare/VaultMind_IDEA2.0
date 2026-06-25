@@ -7,16 +7,18 @@ and writes production-ready files to /data/vaultmind_production/
 import pandas as pd
 import numpy as np
 from faker import Faker
-import uuid, os, warnings
+import uuid, os, warnings, time
 from datetime import datetime, timedelta
 
 warnings.filterwarnings('ignore')
 fake = Faker('en_IN')
-np.random.seed(42)
+np.random.seed(int(time.time()))
 
 # ── paths ──────────────────────────────────────────────────────────────────────
-INPUT_DIR  = "/mnt/user-data/uploads"
-OUTPUT_DIR = "/home/claude/vaultmind_production"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TRAIN_DIR = os.path.join(BASE_DIR, "..", "server", "data", "Training_data")
+TEST_DIR = os.path.join(BASE_DIR, "Testing_data")
+OUTPUT_DIR = os.path.join(BASE_DIR, "..", "server", "data", "vaultmind_production")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 print("=" * 60)
@@ -27,12 +29,12 @@ print("=" * 60)
 # LOAD ALL RAW FILES
 # ══════════════════════════════════════════════════════════════
 print("\n[1/7] Loading raw files...")
-employees   = pd.read_csv(f"{INPUT_DIR}/employees.csv")
-login_logs  = pd.read_csv(f"{INPUT_DIR}/login_logs.csv")
-access_logs = pd.read_csv(f"{INPUT_DIR}/access_logs.csv")
-transactions= pd.read_csv(f"{INPUT_DIR}/transactions.csv")
-warmup      = pd.read_csv(f"{INPUT_DIR}/historical_warmup_data.csv")
-live_stream = pd.read_csv(f"{INPUT_DIR}/live_demo_stream.csv")
+employees   = pd.read_csv(f"{TRAIN_DIR}/employees.csv")
+login_logs  = pd.read_csv(f"{TRAIN_DIR}/login_logs.csv")
+access_logs = pd.read_csv(f"{TRAIN_DIR}/access_logs.csv")
+transactions= pd.read_csv(f"{TRAIN_DIR}/transactions.csv")
+warmup      = pd.read_csv(f"{TEST_DIR}/historical_warmup_data.csv")
+live_stream = pd.read_csv(f"{TEST_DIR}/live_demo_stream.csv")
 
 print(f"  employees:   {len(employees)} rows")
 print(f"  login_logs:  {len(login_logs)} rows")
@@ -99,42 +101,30 @@ print(f"  zone distribution:\n{employees['zone_id'].value_counts().to_dict()}")
 
 def add_dwell_time(df):
     """Add dwell_time_seconds based on role, action type, and fraud flag."""
-    dwell = np.zeros(len(df))
-    for i, row in df.iterrows():
-        idx = df.index.get_loc(i)
-        is_fraud = row.get('is_fraud_flag', 0)
-        emp_class = row.get('emp_class', 'CLERK')
-        action = row.get('action_type', '')
-
-        if action in ['SYSTEM_BULK_EXPORT', 'DB_Read'] and emp_class == 'IT_ADMIN':
-            # IT Admin batch — machine speed
-            dwell[idx] = round(np.random.uniform(0.001, 0.01), 4)
-        elif is_fraud == 1:
-            dwell[idx] = round(np.random.uniform(45, 180), 1)
-        else:
-            dwell[idx] = round(np.random.uniform(30, 300), 1)
+    n = len(df)
+    dwell = np.round(np.random.uniform(30, 300, n), 1)
+    
+    is_fraud_mask = df.get('is_fraud_flag', 0) == 1
+    dwell[is_fraud_mask] = np.round(np.random.uniform(45, 180, is_fraud_mask.sum()), 1)
+    
+    it_mask = (df.get('emp_class', '') == 'IT_ADMIN') & (df.get('action_type', '').isin(['SYSTEM_BULK_EXPORT', 'DB_Read']))
+    dwell[it_mask] = np.round(np.random.uniform(0.001, 0.01, it_mask.sum()), 4)
+    
     return dwell
 
 def add_records_accessed(df):
     """Add records_accessed based on role and fraud flag."""
-    records = np.zeros(len(df), dtype=int)
-    for i, row in df.iterrows():
-        idx = df.index.get_loc(i)
-        is_fraud = row.get('is_fraud_flag', 0)
-        emp_class = row.get('emp_class', 'CLERK')
-
-        if emp_class == 'IT_ADMIN':
-            records[idx] = np.random.randint(5000, 100001)
-        elif emp_class == 'MANAGER':
-            if is_fraud:
-                records[idx] = np.random.randint(150, 500)
-            else:
-                records[idx] = np.random.randint(15, 51)
-        else:  # CLERK
-            if is_fraud:
-                records[idx] = np.random.randint(2000, 5001)  # bulk download
-            else:
-                records[idx] = np.random.randint(80, 151)
+    n = len(df)
+    records = np.random.randint(80, 151, n)
+    
+    is_fraud = df.get('is_fraud_flag', 0) == 1
+    emp_class = df.get('emp_class', 'CLERK')
+    
+    records[(emp_class == 'CLERK') & is_fraud] = np.random.randint(2000, 5001, ((emp_class == 'CLERK') & is_fraud).sum())
+    records[(emp_class == 'MANAGER') & ~is_fraud] = np.random.randint(15, 51, ((emp_class == 'MANAGER') & ~is_fraud).sum())
+    records[(emp_class == 'MANAGER') & is_fraud] = np.random.randint(150, 500, ((emp_class == 'MANAGER') & is_fraud).sum())
+    records[emp_class == 'IT_ADMIN'] = np.random.randint(5000, 100001, (emp_class == 'IT_ADMIN').sum())
+    
     return records
 
 def add_calendar_context(df):
@@ -241,9 +231,10 @@ mask_clerk_normal = (transactions['emp_class'] == 'CLERK') & (transactions['is_f
 over_limit = transactions.loc[mask_clerk_normal, 'amount'] > 499999
 transactions.loc[mask_clerk_normal & over_limit, 'amount'] = np.random.randint(1000, 499999, over_limit.sum())
 
-# IT_ADMIN: force amount = 0, add SYSTEM_BULK_EXPORT action type
+# IT_ADMIN: Add SYSTEM_BULK_EXPORT action type, keep dynamic amounts
 mask_it = transactions['emp_class'] == 'IT_ADMIN'
-transactions.loc[mask_it, 'amount'] = 0
+# Add variance to IT_ADMIN amounts instead of 0
+transactions.loc[mask_it, 'amount'] = np.random.randint(0, 1000, mask_it.sum())
 # 20% of IT_ADMIN rows get SYSTEM_BULK_EXPORT
 it_bulk = transactions[mask_it].sample(frac=0.2, random_state=42).index
 transactions.loc[it_bulk, 'action_type'] = 'SYSTEM_BULK_EXPORT'
@@ -276,7 +267,7 @@ warmup.loc[mask_clerk_w & over_w, 'amount'] = np.random.randint(1000, 499999, ov
 
 # IT_ADMIN
 mask_it_w = warmup['emp_class'] == 'IT_ADMIN'
-warmup.loc[mask_it_w, 'amount'] = 0
+warmup.loc[mask_it_w, 'amount'] = np.random.randint(0, 1000, mask_it_w.sum())
 it_bulk_w = warmup[mask_it_w].sample(frac=0.2, random_state=42).index
 warmup.loc[it_bulk_w, 'action_type'] = 'SYSTEM_BULK_EXPORT'
 
@@ -339,7 +330,7 @@ over_ls = live_stream.loc[mask_clerk_ls, 'amount'] > 499999
 live_stream.loc[mask_clerk_ls & over_ls, 'amount'] = np.random.randint(1000, 499999, over_ls.sum())
 
 mask_it_ls = live_stream['emp_class'] == 'IT_ADMIN'
-live_stream.loc[mask_it_ls, 'amount'] = 0
+live_stream.loc[mask_it_ls, 'amount'] = np.random.randint(0, 1000, mask_it_ls.sum())
 
 live_stream['dwell_time_seconds'] = add_dwell_time(live_stream)
 live_stream['records_accessed']   = add_records_accessed(live_stream)
@@ -347,6 +338,18 @@ live_stream['calendar_context']   = add_calendar_context(live_stream)
 live_stream = inject_nlp_text(live_stream)
 live_stream['login_hour'] = pd.to_datetime(live_stream['timestamp']).dt.hour
 live_stream['off_hours_flag'] = live_stream['login_hour'].apply(lambda h: 1 if h < 8 or h > 20 else 0)
+
+# ── Dynamic Fraudsters ──
+clerks = employees[employees['emp_class'] == 'CLERK']['emp_id'].tolist()
+managers = employees[employees['emp_class'] == 'MANAGER']['emp_id'].tolist()
+np.random.shuffle(clerks)
+np.random.shuffle(managers)
+EMP_SLOW_BOIL = clerks.pop()
+EMP_STRUCTURING = clerks.pop()
+EMP_PRIV_ESC = clerks.pop()
+EMP_COLLUSION_CLERK = clerks.pop()
+EMP_COLLUSION_MGR = managers.pop()
+EMP_MIRAGE_1 = clerks.pop()
 
 # ── Fraud Injection: Scenario A — Slow Boil (Clerk gradually increasing volume) ──
 print("  Injecting Slow Boil fraud scenario...")
@@ -359,12 +362,14 @@ for day in range(28):
     slow_boil_rows.append({
         'timestamp':            ts.strftime('%Y-%m-%d %H:%M:%S'),
         'transaction_id':       str(uuid.uuid4()),
-        'emp_id':               'EMP_1050',
+        'emp_id':               EMP_SLOW_BOIL,
         'emp_class':            'CLERK',
         'branch_id':            'BR_05',
         'action_type':          'DB_Read',
         'amount':               float(amount),
         'account_touched':      f'ACC_{np.random.randint(1000,9999)}',
+        'destination_account':  f'ACC_{np.random.randint(1000,9999)}',
+        'transfer_channel':     'SYSTEM',
         'ip_address':           '10.5.100.99',
         'is_fraud_flag':        1 if day >= 14 else 0,  # first 14 days normal, last 14 fraud
         'dwell_time_seconds':   round(np.random.uniform(45, 180), 1),
@@ -386,12 +391,14 @@ for i in range(60):
     structuring_rows.append({
         'timestamp':            ts.strftime('%Y-%m-%d %H:%M:%S'),
         'transaction_id':       str(uuid.uuid4()),
-        'emp_id':               'EMP_1089',
+        'emp_id':               EMP_STRUCTURING,
         'emp_class':            'CLERK',
         'branch_id':            'BR_12',
         'action_type':          'Initiate',
         'amount':               float(amount),
         'account_touched':      f'ACC_{np.random.randint(1000,9999)}',
+        'destination_account':  f'ACC_{np.random.randint(1000,9999)}',
+        'transfer_channel':     'IMPS',
         'ip_address':           '10.12.50.77',
         'is_fraud_flag':        1,
         'dwell_time_seconds':   round(np.random.uniform(45, 90), 1),
@@ -413,12 +420,14 @@ for i in range(50):
     priv_rows.append({
         'timestamp':            ts.strftime('%Y-%m-%d %H:%M:%S'),
         'transaction_id':       str(uuid.uuid4()),
-        'emp_id':               'EMP_1302',
+        'emp_id':               EMP_PRIV_ESC,
         'emp_class':            'CLERK',
         'branch_id':            'BR_08',
         'action_type':          'Approve',  # CLERK should not do Approve — escalation
         'amount':               amount,
         'account_touched':      f'ACC_{np.random.randint(1000,9999)}',
+        'destination_account':  f'ACC_{np.random.randint(1000,9999)}',
+        'transfer_channel':     'RTGS',
         'ip_address':           '10.8.200.15',
         'is_fraud_flag':        1,
         'dwell_time_seconds':   round(np.random.uniform(4, 8), 1),  # too fast — suspicious
@@ -437,7 +446,7 @@ for i in range(60):
     ts = datetime(2026, 3, np.random.randint(1, 28),
                   20, np.random.randint(0, 5))
     amount = float(np.random.randint(2000000, 50000000))
-    for emp, role, action in [('EMP_1219','CLERK','Initiate'), ('EMP_1193','MANAGER','Approve')]:
+    for emp, role, action in [(EMP_COLLUSION_CLERK,'CLERK','Initiate'), (EMP_COLLUSION_MGR,'MANAGER','Approve')]:
         collusion_rows.append({
             'timestamp':            ts.strftime('%Y-%m-%d %H:%M:%S'),
             'transaction_id':       str(uuid.uuid4()),
@@ -447,6 +456,8 @@ for i in range(60):
             'action_type':          action,
             'amount':               amount,
             'account_touched':      f'ACC_{np.random.randint(5000,5099)}',
+            'destination_account':  f'ACC_{np.random.randint(5000,5099)}',
+            'transfer_channel':     'NEFT',
             'ip_address':           f'10.{np.random.randint(1,20)}.{np.random.randint(1,250)}.{np.random.randint(1,250)}',
             'is_fraud_flag':        1,
             'dwell_time_seconds':   4.0 if role == 'MANAGER' else 30.0,  # 4s approval = too fast
@@ -461,7 +472,7 @@ for i in range(60):
 # ── MIRAGE ACCOUNT rows ──────────────────────────────────────────────────────
 print("  Injecting Mirage Account (DeceptionGuard) rows...")
 mirage_rows = []
-mirage_emps = ['EMP_1001', 'EMP_1050', 'EMP_1089', 'EMP_1219']
+mirage_emps = [clerks.pop(), EMP_SLOW_BOIL, EMP_STRUCTURING, managers.pop()]
 for i in range(15):
     emp   = np.random.choice(mirage_emps)
     mirage_id = f'ACC-MIRAGE-{(i % 10) + 1:03d}'
@@ -471,11 +482,13 @@ for i in range(15):
         'timestamp':            ts.strftime('%Y-%m-%d %H:%M:%S'),
         'transaction_id':       str(uuid.uuid4()),
         'emp_id':               emp,
-        'emp_class':            'CLERK' if emp != 'EMP_1193' else 'MANAGER',
+        'emp_class':            'CLERK' if emp != EMP_COLLUSION_MGR else 'MANAGER',
         'branch_id':            f'BR_{np.random.randint(1,20):02d}',
         'action_type':          'DB_Read',
         'amount':               0.0,
         'account_touched':      mirage_id,
+        'destination_account':  mirage_id,
+        'transfer_channel':     'SYSTEM',
         'ip_address':           f'10.{np.random.randint(1,20)}.{np.random.randint(1,250)}.{np.random.randint(1,250)}',
         'is_fraud_flag':        1,
         'dwell_time_seconds':   12.0,           # human UI — 12 seconds on a honeypot
@@ -528,7 +541,7 @@ for filename, df in save_map.items():
     path = f"{OUTPUT_DIR}/{filename}"
     df.to_csv(path, index=False)
     fraud_count = df['is_fraud_flag'].sum() if 'is_fraud_flag' in df.columns else 'N/A'
-    print(f"  ✓ {filename}: {len(df)} rows | fraud={fraud_count}")
+    print(f"  + {filename}: {len(df)} rows | fraud={fraud_count}")
 
 # ══════════════════════════════════════════════════════════════
 # FINAL QUALITY REPORT
@@ -547,10 +560,10 @@ ls = live_stream_final
 print(f"  Total rows: {len(ls)}")
 print(f"  Fraud rows: {ls['is_fraud_flag'].sum()} ({ls['is_fraud_flag'].mean()*100:.1f}%)")
 print(f"  Fraud scenarios present:")
-print(f"    Slow Boil (EMP_1050):        {(ls['emp_id']=='EMP_1050') & (ls['is_fraud_flag']==1)}.sum()")
-print(f"    Structuring (EMP_1089):       {((ls['emp_id']=='EMP_1089') & (ls['is_fraud_flag']==1)).sum()} rows")
-print(f"    Privilege Escalation (EMP_1302): {((ls['emp_id']=='EMP_1302') & (ls['is_fraud_flag']==1)).sum()} rows")
-print(f"    Collusion (EMP_1219+1193):    {((ls['emp_id'].isin(['EMP_1219','EMP_1193'])) & (ls['is_fraud_flag']==1)).sum()} rows")
+print(f"    Slow Boil (EMP_SLOW_BOIL):        {((ls['emp_id']==EMP_SLOW_BOIL) & (ls['is_fraud_flag']==1)).sum()} rows")
+print(f"    Structuring (EMP_STRUCTURING):       {((ls['emp_id']==EMP_STRUCTURING) & (ls['is_fraud_flag']==1)).sum()} rows")
+print(f"    Privilege Escalation (EMP_PRIV_ESC): {((ls['emp_id']==EMP_PRIV_ESC) & (ls['is_fraud_flag']==1)).sum()} rows")
+print(f"    Collusion (EMP_COLLUSION_CLERK+EMP_COLLUSION_MGR):    {((ls['emp_id'].isin([EMP_COLLUSION_CLERK, EMP_COLLUSION_MGR])) & (ls['is_fraud_flag']==1)).sum()} rows")
 print(f"    Mirage Account triggers:      {ls['account_touched'].str.startswith('ACC-MIRAGE', na=False).sum()} rows")
 print(f"    Original fraud (EMP_1001,1416): {((ls['emp_id'].isin(['EMP_1001','EMP_1416'])) & (ls['is_fraud_flag']==1)).sum()} rows")
 
@@ -561,5 +574,5 @@ print(f"  CLERK amounts > 499999 (non-fraud): {((tx['emp_class']=='CLERK') & (tx
 print(f"  IT_ADMIN SYSTEM_BULK_EXPORT rows: {(tx['action_type']=='SYSTEM_BULK_EXPORT').sum()}")
 print(f"  Off-hours activity: {tx['off_hours_flag'].sum()} rows ({tx['off_hours_flag'].mean()*100:.1f}%)")
 
-print("\n✅ All files saved to:", OUTPUT_DIR)
+print("\n[OK] All files saved to:", OUTPUT_DIR)
 print("=" * 60)

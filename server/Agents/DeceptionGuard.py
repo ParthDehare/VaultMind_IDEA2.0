@@ -25,6 +25,7 @@ class DeceptionGuard:
         self.csv_path = csv_path
         # Dictionary for O(1) fast lookup: mirage_id -> metadata
         self.mirage_db = {}
+        self.last_mtime = 0
         self._load_database()
 
     def _load_database(self):
@@ -38,13 +39,19 @@ class DeceptionGuard:
         try:
             with open(self.csv_path, mode='r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
+                new_db = {}
                 for row in reader:
                     mid = row.get("mirage_id")
                     if mid:
-                        self.mirage_db[mid] = {
+                        new_db[mid] = {
                             "risk_level": row.get("risk_level", "Unknown"),
                             "department": row.get("department", "Unknown")
                         }
+                self.mirage_db = new_db
+            
+            if os.path.exists(self.csv_path):
+                self.last_mtime = os.path.getmtime(self.csv_path)
+
             print(f"[DeceptionGuard] Loaded {len(self.mirage_db)} mirage accounts into active memory.")
         except Exception as e:
             print(f"[DeceptionGuard] ERROR loading database: {e}")
@@ -82,6 +89,11 @@ class DeceptionGuard:
             dict: Evaluation result including risk_score, label, and metadata.
         """
         account_id = transaction.get('destination_account') or transaction.get('source_account') or transaction.get('account_id', '')
+        
+        # Dynamically reload if file changed
+        if os.path.exists(self.csv_path) and os.path.getmtime(self.csv_path) > self.last_mtime:
+            self._load_database()
+
         if account_id in self.mirage_db:
             metadata = self.mirage_db[account_id]
             return {
@@ -116,16 +128,13 @@ if __name__ == "__main__":
     
     print("\n--- Running Evaluations ---")
     for acc in test_accounts:
-        result = agent.evaluate_access(acc)
+        transaction = {"destination_account": acc}
+        result = agent.evaluate(transaction)
         
-        status = "[BREACH!]" if result["risk_score"] == 100 else "[SAFE]"
+        status = "[BREACH!]" if result["severity_index"] == 100 else "[SAFE]"
         print(f"\nAccount: {acc} {status}")
-        print(f"  Score: {result['risk_score']}")
-        print(f"  Label: {result['label']}")
-        if result["evidence"]:
-            print(f"  Evidence:")
-            print(f"    - Dept: {result['evidence']['department']}")
-            print(f"    - Risk: {result['evidence']['risk_level']}")
-            print(f"    - Note: {result['evidence']['trigger']}")
+        print(f"  Score: {result['severity_index']}")
+        print(f"  Label: {result['signal']}")
+        print(f"  Reason: {result['reason']}")
     
     print("\n" + "="*65)

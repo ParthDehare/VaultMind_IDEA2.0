@@ -24,8 +24,7 @@ import { KpiCard } from "./components/KpiCard.jsx";
 import { Section } from "./components/Section.jsx";
 import { LoadingShimmer } from "./components/LoadingShimmer.jsx";
 
-const IS_LOCAL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-const API_BASE = IS_LOCAL ? 'http://localhost:8000' : `https://${import.meta.env.VITE_API_DOMAIN || 'api.vaultmind.systems'}`;
+import { fetchWithAuth, API_BASE } from './apiService';
 
 import { GraphSkeleton } from "./components/GraphSkeleton.jsx";
 import { EnforcementMatrix } from "./components/EnforcementMatrix.jsx";
@@ -33,7 +32,7 @@ import { ProfileTabs } from "./components/ProfileTabs.jsx";
 import { Toast } from "./components/Toast.jsx";
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(!!authStore.getToken());
+  const [isAuthenticated, setIsAuthenticated] = useState(!!authStore.getUser());
   const [user, setUser] = useState(authStore.getUser());
   const userRole = user?.role || '';
   const [downloading, setDownloading] = useState(null);
@@ -101,10 +100,8 @@ export default function App() {
     const normalized = (emp_id || "").toUpperCase();
     if (!normalized) return;
     
-    const headers = authStore.getAuthHeaders();
-    fetch(`${API_BASE}/api/feedback/${normalized}`, {
+    fetchWithAuth(`api/feedback/${normalized}`, {
       method: "POST",
-      headers,
       body: JSON.stringify({ action: "CONFIRM", feedback_text: "Incident confirmed by Auditor" })
     }).catch(err => console.error("Failed to submit feedback", err));
 
@@ -119,10 +116,8 @@ export default function App() {
     const normalized = (emp_id || "").toUpperCase();
     if (!normalized) return;
     
-    const headers = authStore.getAuthHeaders();
-    fetch(`${API_BASE}/api/feedback/${normalized}`, {
+    fetchWithAuth(`api/feedback/${normalized}`, {
       method: "POST",
-      headers,
       body: JSON.stringify({ action: "FALSE_ALARM", feedback_text: "Model retraining initiated by Auditor" })
     }).catch(err => console.error("Failed to submit feedback", err));
 
@@ -276,24 +271,11 @@ export default function App() {
   useEffect(() => {
     if (isAuthenticated) {
       setIsLoadingInitial(true);
-      const headers = authStore.getAuthHeaders();
       
-      const handleAuthError = (res) => {
-        if (res.status === 401) {
-          console.warn("Token expired! Logging out...");
-          handleLogout();
-          throw new Error("Unauthorized");
-        }
-        return res.json();
-      };
+      fetchWithAuth(`api/system/start-stream`, { method: "POST" }).catch(e => console.error("Auto stream start failed", e));
 
-      // Ensure stream is started if we refreshed the page and bypassed login
-      fetch(`${API_BASE}/api/system/start-stream`, { method: "POST", headers })
-        .then(handleAuthError)
-        .catch((err) => console.warn("Failed to auto-start stream", err));
-
-      fetch(`${API_BASE}/api/roster/employees`, { headers })
-        .then(handleAuthError)
+      fetchWithAuth(`api/roster/employees`)
+        .then(r => r.json())
         .then((data) => {
           if (data.employees && Array.isArray(data.employees)) {
             const metadataMap = {};
@@ -305,8 +287,8 @@ export default function App() {
         })
         .catch((err) => console.warn("Employee metadata fetch failed", err));
 
-      fetch(`${API_BASE}/api/dashboard-init`, { headers })
-        .then(handleAuthError)
+      fetchWithAuth(`api/dashboard-init`)
+        .then(r => r.json())
         .then((payload) => {
           const rows = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : [];
           const normalized = rows.map((tx) => ({
@@ -341,15 +323,8 @@ export default function App() {
   }, []);
 
   const fetchNextTransaction = useCallback(() => {
-    const headers = authStore.getAuthHeaders();
-    return fetch("https://api.vaultmind.systems/get-next-transaction", { headers })
-      .then((res) => {
-        if (res.status === 401) {
-          handleLogout();
-          throw new Error("Unauthorized");
-        }
-        return res.json();
-      })
+    return fetchWithAuth("get-next-transaction")
+      .then((res) => res.json())
       .then((newTxn) => {
         const normalized = normalizeTransaction(newTxn);
         if (normalized) {
@@ -358,6 +333,7 @@ export default function App() {
       })
       .catch((err) => console.error("Live update failed", err));
   }, [normalizeTransaction]);
+
 
   useEffect(() => {
     if (!autoRefresh || !isAuthenticated) return;
@@ -370,8 +346,7 @@ export default function App() {
       // If deployed, point directly to your Cloudflare domain
       const wsHost = isLocal ? 'localhost:8000' : (import.meta.env.VITE_API_DOMAIN || 'api.vaultmind.systems');
       const wsProto = isLocal ? 'ws:' : 'wss:';
-      const token = authStore.getToken();
-      ws = new WebSocket(`${wsProto}//${wsHost}/ws/alerts?token=${token}`);
+      ws = new WebSocket(`${wsProto}//${wsHost}/ws/alerts`);
       ws.onopen = () => {
         if (!isMounted) { ws.close(); return; }
         console.log("🟢 Connected to WebSocket for live alerts");
@@ -970,7 +945,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => {
-                              const pdfUrl = `${API_BASE}/api/evidence/download?emp_id=${eid}`;
+                              const pdfUrl = `api/evidence/download?emp_id=${eid}`;
                               forceDownloadPDF(pdfUrl, eid);
                             }}
                             className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"
@@ -988,7 +963,7 @@ export default function App() {
                           <span className="text-[10px] font-mono font-bold text-gray-500 tracking-widest">[ ANALYST: VIEW-ONLY MODE ]</span>
                           <button
                             onClick={() => {
-                              const pdfUrl = `${API_BASE}/api/evidence/download?emp_id=${eid}`;
+                              const pdfUrl = `api/evidence/download?emp_id=${eid}`;
                               forceDownloadPDF(pdfUrl, eid);
                             }}
                             className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"
@@ -1102,7 +1077,7 @@ export default function App() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const cleanFilename = evd.filename.split('\\').pop().split('/').pop();
-                                const pdfUrl = `${API_BASE}/api/evidence/download?filename=${encodeURIComponent(cleanFilename)}`;
+                                const pdfUrl = `api/evidence/download?filename=${encodeURIComponent(cleanFilename)}`;
                                 forceDownloadPDF(pdfUrl, evd.emp_id);
                               }}
                               className="px-3 py-1.5 text-[10px] font-mono font-bold border border-blue-500 text-blue-500 hover:bg-blue-900/40 transition-colors uppercase rounded-sm cursor-pointer"

@@ -1,16 +1,16 @@
 export const authStore = {
-  getToken: () => localStorage.getItem('vm_token'),
+  // We no longer store the JWT token in localStorage for security reasons.
+  // The backend now issues an HttpOnly cookie that the browser sends automatically.
+  
   getUser: () => JSON.parse(localStorage.getItem('vm_user') || 'null'),
-  setAuth: (token, user) => {
-    localStorage.setItem('vm_token', token);
+  
+  setAuth: (user) => {
     localStorage.setItem('vm_user', JSON.stringify(user));
   },
+  
   clearAuth: () => {
-    localStorage.removeItem('vm_token');
     localStorage.removeItem('vm_user');
   },
-  getAuthHeaders: () => ({
-    'Authorization': `Bearer ${localStorage.getItem('vm_token')}`,
-    'Content-Type': 'application/json'
-  })
+  
+  // getAuthHeaders is deprecated, use fetchWithAuth from apiService.js instead
 };

@@ -454,7 +454,8 @@ class BehaviourWatch:
 
         # ── NEW: Try trained Isolation Forest FIRST ──
         try:
-            features = np.array([amount, dwell_time, float(login_hour)])
+            records_accessed = float(transaction.get("records_accessed", 50)) # default if missing
+            features = np.array([amount, dwell_time, records_accessed, float(login_hour)])
             ml_score = ml_models.predict_anomaly(features)
             
             if ml_score >= 0:  # Model is loaded and returned valid prediction
@@ -467,7 +468,7 @@ class BehaviourWatch:
                     "reason":         reason
                 }
         except Exception as e:
-            pass  # Fall through to rule-based logic as fallback
+            print(f"[BehaviourWatch] ML Model Error: {e}") # Fall through to rule-based logic as fallback
 
         # ── 2. O(1) baseline retrieval ────────────────────────────────────
         baseline = self._get_baseline(emp_class)

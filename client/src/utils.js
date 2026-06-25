@@ -18,8 +18,7 @@ export const TIER_COLORS = (t) => ({
 
 export const ROWS_PER_PAGE = 20;
 
-import { authStore } from './authStore';
-
+import { fetchWithAuth } from './apiService';
 export const riskTier = (score) => {
   if (score >= 70) return "CRITICAL";
   if (score >= 50) return "HIGH";
@@ -29,8 +28,7 @@ export const riskTier = (score) => {
 
 export const forceDownloadPDF = async (pdfUrl, empId) => {
   try {
-    const headers = authStore.getAuthHeaders();
-    const response = await fetch(pdfUrl, { headers });
+    const response = await fetchWithAuth(pdfUrl);
     if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);

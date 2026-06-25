@@ -10,16 +10,23 @@ import uuid
 # Initialize Kafka Producer
 # Make sure to run: pip install kafka-python pandas
 import os
-try:
-    producer = KafkaProducer(
-        bootstrap_servers=[os.environ.get('KAFKA_BROKER', 'localhost:9092')],
-        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
-        api_version=(2, 5, 0)
-    )
-    print("[OK] Kafka Producer Connected Successfully!")
-except Exception as e:
-    print(f"[ERROR] Kafka Connection Failed: {e}")
-    exit()
+producer = None
+for attempt in range(5):
+    try:
+        producer = KafkaProducer(
+            bootstrap_servers=[os.environ.get('KAFKA_BROKER', 'localhost:9092')],
+            value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+            api_version=(2, 5, 0),
+            retries=5
+        )
+        print("[OK] Kafka Producer Connected Successfully!")
+        break
+    except Exception as e:
+        print(f"[ERROR] Kafka Connection Failed (Attempt {attempt+1}/5): {e}")
+        time.sleep(2)
+
+if not producer:
+    print("[WARNING] Could not connect to Kafka. Producer running in dummy mode.")
 
 TOPIC_NAME = 'live-transactions'
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -39,7 +46,8 @@ def stream_data():
                 transaction['transaction_id'] = str(uuid.uuid4())
                 
                 # Send to Kafka
-                producer.send(TOPIC_NAME, transaction)
+                if producer:
+                    producer.send(TOPIC_NAME, transaction)
                 print(f"[STREAM] Sent Tx: {transaction.get('transaction_id', 'UNKNOWN')} | Acc: {transaction.get('source_account', 'N/A')}")
                 
                 # Simulate real-time delay (1.5 seconds per transaction)

@@ -734,7 +734,7 @@ class NetworkIntel:
 
         # ── NEW: Try trained PyTorch GNN FIRST ──
         try:
-            gnn_score = ml_models.predict_gnn(emp_id)
+            gnn_score = ml_models.predict_gnn(transaction)
             if gnn_score >= 0:
                 cbsi = int(gnn_score)
                 signal = "CRITICAL_GNN_ANOMALY" if cbsi >= 80 else "GNN_ANOMALY"
@@ -744,8 +744,8 @@ class NetworkIntel:
                     "signal":         signal,
                     "reason":         reason
                 }
-        except Exception:
-            pass # Fall through to rules
+        except Exception as e:
+            print(f"[NetworkIntel] ML Model Error: {e}") # Fall through to rules
 
         # ── 2. Dimension A — Privilege Escalation Score (O(1) lookups) ───
         pes_score, raw_weight = self._compute_pes(emp_class, system_action)

@@ -140,6 +140,25 @@ class MasterOrchestrator:
 
         final_cbsi = int(min(100, (weighted_sum / total_weight)))
 
+        # Update historical stats
+        historical_state.stats["transactions_scanned"] += 1
+        historical_state.stats["cbsi_sum"] += final_cbsi
+        if final_cbsi >= 80:
+            historical_state.stats["critical_alerts"] += 1
+        elif final_cbsi >= 50:
+            historical_state.stats["high_risk_flags"] += 1
+            
+        # Graph updates
+        acc_touched = transaction.get("account_touched", "UNKNOWN")
+        dst_acc = transaction.get("destination_account", "UNKNOWN")
+        amt = transaction.get("amount", 0)
+        historical_state.graph_nodes.add(str(acc_touched))
+        historical_state.graph_nodes.add(str(dst_acc))
+        historical_state.graph_edges.append((str(acc_touched), str(dst_acc), amt))
+        # Keep graph size reasonable
+        if len(historical_state.graph_edges) > 50:
+            historical_state.graph_edges.pop(0)
+
         # ── 3. Decision Engine ──
         decision = "PASS"
         evidence = "Not Required"
@@ -217,6 +236,10 @@ class MasterOrchestrator:
             
         self.in_memory_alerts.insert(0, alert_data)
         self.in_memory_alerts = self.in_memory_alerts[:50]
+        
+        # Keep historical state recent_alerts in sync
+        historical_state.recent_alerts.insert(0, alert_data)
+        historical_state.recent_alerts = historical_state.recent_alerts[:50]
         
         if redis_db is None: return
         try:

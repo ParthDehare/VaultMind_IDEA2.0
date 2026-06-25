@@ -54,12 +54,16 @@ orchestrator = MasterOrchestrator()
 # ---------------------------------------------------------
 @router.get("/dashboard/kpis")
 def get_kpis(current_user: TokenData = Depends(get_current_user)):
+    avg_cbsi = 0
+    if historical_state.stats["transactions_scanned"] > 0:
+        avg_cbsi = historical_state.stats["cbsi_sum"] / historical_state.stats["transactions_scanned"]
+    
     return {
-        "transactions_scanned": 48021,
-        "critical_alerts": 12,
-        "high_risk_flags": 34,
-        "confirmed_fraud": 4,
-        "avg_cbsi_score": 15.1
+        "transactions_scanned": historical_state.stats["transactions_scanned"],
+        "critical_alerts": historical_state.stats["critical_alerts"],
+        "high_risk_flags": historical_state.stats["high_risk_flags"],
+        "confirmed_fraud": historical_state.stats["confirmed_fraud"],
+        "avg_cbsi_score": round(avg_cbsi, 1)
     }
 
 # ---------------------------------------------------------
@@ -67,26 +71,19 @@ def get_kpis(current_user: TokenData = Depends(get_current_user)):
 # ---------------------------------------------------------
 @router.get("/stream/kafka-sim")
 def get_live_stream(current_user: TokenData = Depends(get_current_user)):
-    # Simulated live data coming from Orchestrator
-    return [
-        {"emp_id": "EMP_1412", "type": "ATM_Withdrawal", "amount": 34739, "cbsi": 15, "time": datetime.now().strftime("%H:%M:%S")},
-        {"emp_id": "EMP_1024", "type": "NEFT_Transfer", "amount": 5000000, "cbsi": 100, "time": datetime.now().strftime("%H:%M:%S")}
-    ]
+    # Live data from orchestrator state
+    return historical_state.recent_alerts
 
 # ---------------------------------------------------------
 # ENDPOINT 3: Agent 2 Graph Fund Flow
 # ---------------------------------------------------------
 @router.get("/graph/fundflow")
 def get_graph_data(current_user: TokenData = Depends(get_current_user)):
+    nodes = [{"id": n, "label": n, "group": "critical"} for n in historical_state.graph_nodes]
+    edges = [{"from": e[0], "to": e[1], "label": str(e[2])} for e in historical_state.graph_edges]
     return {
-        "nodes": [
-            {"id": "EMP_1024", "label": "EMP_1024", "group": "critical"},
-            {"id": "ACC_GHOST_99", "label": "ACC_GHOST_99", "group": "honeypot"},
-            {"id": "EMP_1099", "label": "EMP_1099", "group": "watch"}
-        ],
-        "edges": [
-            {"from": "EMP_1024", "to": "ACC_GHOST_99", "label": "Rs.50,00,000"}
-        ]
+        "nodes": nodes,
+        "edges": edges
     }
 
 # ---------------------------------------------------------
@@ -102,7 +99,7 @@ def generate_explanation(emp_id: str, payload: Optional[ExplainRequest] = None, 
 
     try:
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         
         prompt = (
             f"You are a Senior SOC Analyst for VaultMind AI. "
@@ -119,10 +116,11 @@ def generate_explanation(emp_id: str, payload: Optional[ExplainRequest] = None, 
         if "429" in error_msg or "Quota" in error_msg:
             try:
                 # Fallback 1: Try the flash-lite model which usually has a separate quota bucket
-                fallback_model = genai.GenerativeModel('gemini-2.5-flash-lite')
+                fallback_model = genai.GenerativeModel('gemini-1.5-flash-8b')
                 response = fallback_model.generate_content(prompt)
                 explanation = response.text.strip()
-            except Exception:
+            except Exception as e:
+                print(f"[api_server] Gemini fallback failed: {e}")
                 # Fallback 2: Graceful offline fallback so the UI never breaks during a demo
                 explanation = (
                     f"Employee {emp_id} triggered a CBSI risk score of {cbsi} due to anomalous patterns detected in the {action_type} activity. "
@@ -195,8 +193,9 @@ class STRRequest(BaseModel):
     cbsi_score: float
 
 @router.post("/evidence/file-str")
-def file_str(payload: STRRequest, current_user: TokenData = Depends(require_role("auditor"))):
+def file_str(payload: STRRequest, current_user: TokenData = Depends(require_role("auditor", "admin", "manager"))):
     # Simulated FIU-IND submission
+    historical_state.stats["confirmed_fraud"] += 1
     return {"status": "success", "message": f"STR filed successfully for {payload.emp_id}"}
 
 # ---------------------------------------------------------
@@ -244,17 +243,19 @@ def get_historical_volume(emp_id: str, current_user: TokenData = Depends(get_cur
 # ---------------------------------------------------------
 # ENDPOINT 6: Human-in-the-Loop Feedback
 @router.post("/feedback/{emp_id}")
-def submit_feedback(emp_id: str, feedback: FeedbackRequest, current_user: TokenData = Depends(require_role("auditor"))):
+def submit_feedback(emp_id: str, feedback: FeedbackRequest, current_user: TokenData = Depends(require_role("auditor", "admin", "manager"))):
     if feedback.action == "CONFIRM":
+        historical_state.stats["confirmed_fraud"] += 1
         return {"status": "success", "message": f"Incident confirmed. Locking {emp_id} terminal and drafting FIU-STR."}
     else:
+        historical_state.stats["critical_alerts"] = max(0, historical_state.stats["critical_alerts"] - 1)
         return {"status": "success", "message": f"False alarm logged. Recalibrating AI baseline for {emp_id}."}
 
 # ---------------------------------------------------------
 # ENDPOINT 7: Orchestrator Transaction Scan (with Debug Logs)
 # ---------------------------------------------------------
 @router.post("/orchestrator/scan")
-async def orchestrator_scan(tx: TransactionRequest, current_user: TokenData = Depends(require_role("auditor"))):
+async def orchestrator_scan(tx: TransactionRequest, current_user: TokenData = Depends(require_role("auditor", "admin", "manager"))):
     tx_dict = tx.dict()
     
     print(f"\n{'='*70}")
@@ -328,8 +329,8 @@ def get_latest_alerts(current_user: TokenData = Depends(get_current_user)):
             raw = redis_db.lrange("live_alerts", 0, 49)
             if raw:
                 return [json.loads(r) for r in raw]
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[api_server] Redis error fetching alerts: {e}")
             
     # Fallback to in-memory list from orchestrator
     if hasattr(orchestrator, "in_memory_alerts"):

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
-import { authStore } from '../authStore';
 import { forceDownloadPDF } from '../utils.js';
+import { fetchWithAuth } from '../apiService';
 
 export function EnforcementMatrix({ emp_id, onConfirm, userRole, onToast }) {
   const [status, setStatus] = useState("idle");
@@ -21,9 +21,8 @@ export function EnforcementMatrix({ emp_id, onConfirm, userRole, onToast }) {
   const handleAction = async (actionType) => {
     if (actionType === "FALSE_ALARM") setStatus("recalibrating");
     try {
-      await fetch(`https://api.vaultmind.systems/api/feedback/${emp_id}`, {
+      await fetchWithAuth(`api/feedback/${emp_id}`, {
         method: "POST",
-        headers: authStore.getAuthHeaders(),
         body: JSON.stringify({ action: actionType, feedback_text: `Marked as ${actionType} by user` })
       });
       if (onToast) onToast("Action Logged: Feedback sent to AI Retraining Pipeline.");
@@ -39,7 +38,7 @@ export function EnforcementMatrix({ emp_id, onConfirm, userRole, onToast }) {
 
   const handleDownload = (e) => {
     e.stopPropagation();
-    const targetUrl = `https://api.vaultmind.systems/api/evidence/download?emp_id=${emp_id}`;
+    const targetUrl = `api/evidence/download?emp_id=${emp_id}`;
     forceDownloadPDF(targetUrl, emp_id);
   };
 

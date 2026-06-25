@@ -66,6 +66,7 @@ import math
 import json
 import os
 import warnings
+import requests
 from typing import Dict, List, Tuple, Set
 
 # ---------------------------------------------------------------------------
@@ -378,14 +379,29 @@ class FundFlow:
                 max_weight = max(max_weight, 0.78)
                 fired_tiers.append(f"VPN_PROXY_CIDR ({cidr_16}*)")
 
-        # ── Tier 3: Geolocation anomaly (non-Indian /8 prefix) ───────────
-        if len(parts) >= 1:
-            prefix_8 = f"{parts[0]}."
-            is_indian = any(ip.startswith(pfx) for pfx in INDIA_IP_PREFIXES)
+        # ── Tier 3: Geolocation anomaly (non-Indian IP) ───────────
+        if ip:
+            is_indian = False
+            # Try dynamic GeoIP API first
+            try:
+                # Use a short timeout so we don't block inference for too long
+                resp = requests.get(f"https://ipapi.co/{ip}/country/", timeout=1.0)
+                if resp.status_code == 200:
+                    country_code = resp.text.strip()
+                    is_indian = (country_code == "IN")
+                else:
+                    # Fallback to static prefix matching if API rate limits or fails
+                    prefix_8 = f"{ip.split('.')[0]}."
+                    is_indian = any(ip.startswith(pfx) for pfx in INDIA_IP_PREFIXES)
+            except Exception:
+                # Fallback on any error (timeout, network issue)
+                prefix_8 = f"{ip.split('.')[0]}." if "." in ip else ""
+                is_indian = any(ip.startswith(pfx) for pfx in INDIA_IP_PREFIXES)
+
             if not is_indian and max_weight < 0.52:
                 # Only fire if Tor/VPN haven't already covered the IP
                 max_weight = max(max_weight, 0.52)
-                fired_tiers.append(f"GEO_ANOMALY (non-Indian IP: {prefix_8}*)")
+                fired_tiers.append(f"GEO_ANOMALY (non-Indian IP: {ip})")
 
         irs_score = max_weight * 100.0
         return min(100.0, irs_score), fired_tiers

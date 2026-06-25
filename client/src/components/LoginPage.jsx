@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import ubiLogo from '../assets/ubi_logo.png';
+import { fetchWithAuth } from '../apiService';
+import { authStore } from '../authStore';
 
 export default function LoginPage({ onLogin, t }) {
   const [email, setEmail] = useState('');
@@ -14,10 +16,10 @@ export default function LoginPage({ onLogin, t }) {
     setError('');
     
     try {
-      const res = await fetch('https://api.vaultmind.systems/api/auth/login', {
+      const res = await fetchWithAuth('api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email, password }),
+        headers: { 'Content-Type': 'application/json' }
       });
       
       const data = await res.json();
@@ -28,14 +30,14 @@ export default function LoginPage({ onLogin, t }) {
       
       // Start Kafka Stream in background after successful login
       try {
-        await fetch('https://api.vaultmind.systems/api/system/start-stream', {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${data.access_token}` }
+        await fetchWithAuth('api/system/start-stream', {
+          method: 'POST'
         });
       } catch (streamErr) {
         console.warn("Failed to start stream:", streamErr);
       }
       
+      authStore.setAuth(data.user);
       onLogin(data.access_token, data.user);
     } catch (err) {
       setError(err.message);

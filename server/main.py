@@ -14,7 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from kafka import KafkaConsumer
 
 from core.master_orchestrator import MasterOrchestrator
-from core.auth import get_current_user, require_role, decode_jwt
+from core.auth import get_current_user, require_role, decode_jwt, TokenData
 from core.ml_models import ml_models
 from api.api_server import router as api_router
 from api.auth_routes import router as auth_router
@@ -33,7 +33,7 @@ app.include_router(auth_router, prefix="/api")
 # Allow React to connect
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Localhost React
+    allow_origin_regex="https?://.*",  # Allows any origin with credentials
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -47,7 +47,8 @@ active_connections = []
 main_loop = None  # Store the main event loop
 
 @app.websocket("/ws/alerts")
-async def websocket_endpoint(websocket: WebSocket, token: str = Query(None)):
+async def websocket_endpoint(websocket: WebSocket):
+    token = websocket.cookies.get("vm_token")
     if not token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
@@ -121,12 +122,9 @@ async def start_kafka_stream(current_user=Depends(get_current_user)):
     This endpoint is kept alive for frontend compatibility."""
     return {"status": "managed_externally", "message": "Kafka producer is managed as a separate service."}
 @app.get("/get-next-transaction")
-async def get_next_transaction():
+async def get_next_transaction(current_user: TokenData = Depends(get_current_user)):
     # Retrieve the next transaction from the backend to send to the frontend.
-    # Note: If a queue/buffer system is implemented, fetch the data from there.
-    # Example:
     try:
-        # Assuming you have a way to get the latest processed transaction
         txn = orchestrator.get_latest_processed_transaction()
         return txn
     except Exception as e:
@@ -134,12 +132,11 @@ async def get_next_transaction():
     
 
 @app.get("/api/evidence/download")
-def download_evidence(emp_id: str):
-    # Dummy fallback response agar sach mein PDF generation pipeline ready na ho
+def download_evidence(emp_id: str, current_user: TokenData = Depends(get_current_user)):
     return {"status": "success", "message": f"Evidence package compiled for {emp_id}."}
 
 @app.post("/api/evidence/file-str")
-def file_str(payload: dict):
+def file_str(payload: dict, current_user: TokenData = Depends(require_role("auditor"))):
     emp_id = payload.get("emp_id")
     cbsi_score = payload.get("cbsi_score")
     return {

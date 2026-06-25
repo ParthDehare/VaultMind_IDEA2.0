@@ -11,7 +11,11 @@ import pandas as pd
 from faker import Faker
 from datetime import datetime, timedelta
 
-SEED              = 42
+import sys, time
+try:
+    SEED = int(sys.argv[sys.argv.index('--seed') + 1])
+except (ValueError, IndexError):
+    SEED = int(os.getenv("VAULTMIND_SEED", str(int(time.time()))))
 TOTAL_ROWS        = 50_000
 N_EMPLOYEES       = 500
 SIM_START         = datetime(2025, 10, 1)
@@ -125,8 +129,10 @@ def build_normal_transactions(employees: pd.DataFrame, ip_pool: dict,
     actions = [random.choice(ACTION_BY_ROLE[r]) for r in emps["emp_class"]]
     lo = emps["emp_class"].map(lambda r: AMOUNT_RANGE[r][0]).values.astype(float)
     hi = emps["emp_class"].map(lambda r: AMOUNT_RANGE[r][1]).values.astype(float)
-    amounts = np.where(emps["emp_class"].values == "IT_ADMIN", 0.0,
-                       np.round(rng.uniform(lo, hi), 2))
+    it_admin_mask = emps["emp_class"].values == "IT_ADMIN"
+    it_admin_amounts = np.round(np.clip(rng.lognormal(mean=6, sigma=1, size=it_admin_mask.sum()), 0, 50000), 2)
+    amounts = np.round(rng.uniform(lo, hi), 2)
+    amounts[it_admin_mask] = it_admin_amounts
 
     def pick_ip(branch):
         return (random.choice(ip_pool["internal"][branch]) if rng.random() < 0.95
@@ -141,6 +147,26 @@ def build_normal_transactions(employees: pd.DataFrame, ip_pool: dict,
 
     channels = [get_transfer_channel(a, amt) for a, amt in zip(actions, amounts)]
 
+    def compute_dwell(act, emp_cls):
+        if act in ["SYSTEM_BULK_EXPORT", "DB_Read"] and emp_cls == "IT_ADMIN":
+            return np.round(rng.uniform(0.001, 0.01), 4)
+        elif act in ["Fund_Transfer", "Loan_Disbursal"]:
+            return np.round(rng.uniform(60, 300), 2)
+        else:
+            return np.round(rng.uniform(30, 180), 2)
+
+    def compute_records(act, emp_cls):
+        if emp_cls == "IT_ADMIN":
+            return int(rng.integers(5000, 100001))
+        elif emp_cls == "MANAGER":
+            return int(rng.integers(15, 51))
+        else:
+            return int(rng.integers(80, 151))
+            
+    dwells = [compute_dwell(a, r) for a, r in zip(actions, emps["emp_class"].values)]
+    recs = [compute_records(a, r) for a, r in zip(actions, emps["emp_class"].values)]
+    dest_acc = [f"ACC_{rng.integers(1000,9999)}" for _ in range(n)]
+
     return pd.DataFrame({
         "timestamp":          timestamps,
         "transaction_id":     [str(uuid.uuid4()) for _ in range(n)],
@@ -150,8 +176,11 @@ def build_normal_transactions(employees: pd.DataFrame, ip_pool: dict,
         "action_type":        actions,
         "amount":             amounts,
         "account_touched":    [f"ACC_{rng.integers(1000,9999)}" for _ in range(n)],
+        "destination_account": dest_acc,
         "ip_address":         [pick_ip(br) for br in emps["branch_id"]],
         "transfer_channel":   channels,
+        "records_accessed":   recs,
+        "dwell_time_seconds": dwells,
         "raw_complaint_text": complaint_col,
         "hr_remark_text":     hr_col,
         "is_fraud_flag":      0,
@@ -160,46 +189,46 @@ def build_normal_transactions(employees: pd.DataFrame, ip_pool: dict,
 # ── FRAUD SCENARIO 1: Maker-Checker Collusion ─────────────────────────────────
 
 def inject_maker_checker(employees, ip_pool, rng, n_instances=20):
-    clerk   = employees[employees["emp_class"] == "CLERK"].sample(1, random_state=SEED).iloc[0]
-    manager = employees[employees["emp_class"] == "MANAGER"].sample(1, random_state=SEED+1).iloc[0]
-    branch  = clerk["branch_id"]
-    acct    = f"ACC_{rng.integers(5000,6000)}"
-    c_ip    = random.choice(ip_pool["internal"][branch])
-    m_ip    = random.choice(ip_pool["internal"][branch])
     dates   = spread_dates(n_instances)
     rows    = []
     for ts in dates:
+        clerk   = employees[employees["emp_class"] == "CLERK"].sample(1).iloc[0]
+        manager = employees[employees["emp_class"] == "MANAGER"].sample(1).iloc[0]
+        branch  = clerk["branch_id"]
+        acct    = f"ACC_{rng.integers(5000,6000)}"
+        c_ip    = random.choice(ip_pool["internal"][branch])
+        m_ip    = random.choice(ip_pool["internal"][branch])
         base = datetime(ts.year, ts.month, ts.day, 20, 0, 0)
         rows.append({"timestamp": pd.Timestamp(base), "transaction_id": str(uuid.uuid4()),
                      "emp_id": clerk["emp_id"], "emp_class": "CLERK", "branch_id": branch,
                      "action_type": "Initiate", "amount": 50_000_000.0, "account_touched": acct,
                      "ip_address": c_ip, "transfer_channel": "RTGS",
-                     "raw_complaint_text": "", "hr_remark_text": "", "is_fraud_flag": 1})
+                     "raw_complaint_text": "", "hr_remark_text": "", "destination_account": f"ACC_{rng.integers(5000,6000)}", "records_accessed": int(rng.integers(2000, 5001)), "dwell_time_seconds": round(float(rng.uniform(45, 180)), 2), "is_fraud_flag": 1})
         rows.append({"timestamp": pd.Timestamp(base + timedelta(seconds=40)),
                      "transaction_id": str(uuid.uuid4()),
                      "emp_id": manager["emp_id"], "emp_class": "MANAGER", "branch_id": branch,
                      "action_type": "Approve", "amount": 50_000_000.0, "account_touched": acct,
                      "ip_address": m_ip, "transfer_channel": "RTGS",
-                     "raw_complaint_text": "", "hr_remark_text": "", "is_fraud_flag": 1})
+                     "raw_complaint_text": "", "hr_remark_text": "", "destination_account": f"ACC_{rng.integers(5000,6000)}", "records_accessed": int(rng.integers(2000, 5001)), "dwell_time_seconds": round(float(rng.uniform(45, 180)), 2), "is_fraud_flag": 1})
     return pd.DataFrame(rows)
 
 # ── FRAUD SCENARIO 2: Midnight Harvest ───────────────────────────────────────
 
 def inject_midnight_harvest(employees, ip_pool, rng, n_instances=15):
-    admin  = employees[employees["emp_class"] == "IT_ADMIN"].sample(1, random_state=SEED+2).iloc[0]
-    ex_ip  = random.choice(ip_pool["external"])
     dates  = spread_dates(n_instances)
     rows   = []
     for ts in dates:
+        admin  = employees[employees["emp_class"] == "IT_ADMIN"].sample(1).iloc[0]
+        ex_ip  = random.choice(ip_pool["external"])
         base = datetime(ts.year, ts.month, ts.day, 2, 47, random.randint(0, 59))
         rows.append({"timestamp": pd.Timestamp(base), "transaction_id": str(uuid.uuid4()),
                      "emp_id": admin["emp_id"], "emp_class": "IT_ADMIN",
                      "branch_id": admin["branch_id"], "action_type": "DB_Read",
-                     "amount": 0.0, "account_touched": "SYSTEM_BULK_EXPORT",
+                     "amount": round(float(rng.uniform(0.0, 1000.0)), 2), "account_touched": "SYSTEM_BULK_EXPORT",
                      "ip_address": ex_ip, "transfer_channel": "SYSTEM",
                      "raw_complaint_text": "",
                      "hr_remark_text": "ALERT: Bulk export of 50000 customer records to external IP.",
-                     "is_fraud_flag": 1})
+                     "destination_account": f"ACC_{rng.integers(5000,6000)}", "records_accessed": int(rng.integers(2000, 5001)), "dwell_time_seconds": round(float(rng.uniform(45, 180)), 2), "is_fraud_flag": 1})
     return pd.DataFrame(rows)
 
 # ── FRAUD SCENARIO 3: Toxic NLP Signal ───────────────────────────────────────
@@ -222,13 +251,13 @@ NEGATIVE_HR = [
 ]
 
 def inject_toxic_nlp(employees, ip_pool, rng, n_instances=50):
-    manager = employees[employees["emp_class"] == "MANAGER"].sample(1, random_state=SEED+3).iloc[0]
-    branch  = manager["branch_id"]
-    m_ip    = random.choice(ip_pool["internal"][branch])
-    acct    = f"ACC_{rng.integers(7000,8000)}"
     dates   = spread_dates(n_instances)
     rows    = []
     for i, ts in enumerate(dates):
+        manager = employees[employees["emp_class"] == "MANAGER"].sample(1).iloc[0]
+        branch  = manager["branch_id"]
+        m_ip    = random.choice(ip_pool["internal"][branch])
+        acct    = f"ACC_{rng.integers(7000,8000)}"
         base = datetime(ts.year, ts.month, ts.day, ts.hour, ts.minute, 0)
         rows.append({"timestamp": pd.Timestamp(base), "transaction_id": str(uuid.uuid4()),
                      "emp_id": manager["emp_id"], "emp_class": "MANAGER", "branch_id": branch,
@@ -236,7 +265,7 @@ def inject_toxic_nlp(employees, ip_pool, rng, n_instances=50):
                      "account_touched": acct, "ip_address": m_ip, "transfer_channel": "NEFT",
                      "raw_complaint_text": BRIBE_TEXTS[i % len(BRIBE_TEXTS)],
                      "hr_remark_text": NEGATIVE_HR[i % len(NEGATIVE_HR)],
-                     "is_fraud_flag": 1})
+                     "destination_account": f"ACC_{rng.integers(5000,6000)}", "records_accessed": int(rng.integers(2000, 5001)), "dwell_time_seconds": round(float(rng.uniform(45, 180)), 2), "is_fraud_flag": 1})
     return pd.DataFrame(rows)
 
 # ── FRAUD SCENARIO 4: Zero-Day Loan Velocity (Agent 1 Primary Target) ─────────
@@ -246,16 +275,14 @@ def inject_zero_day_loan(employees, ip_pool, rng, n_bursts=25, loans_per_burst=1
     A clerk processes 15 loan initiations within 25 minutes (normal: 2-3/hour).
     One manager auto-approves all of them. Velocity anomaly = Agent 1 trigger.
     """
-    clerks   = employees[employees["emp_class"] == "CLERK"].sample(3, random_state=SEED+4)
-    managers = employees[employees["emp_class"] == "MANAGER"].sample(3, random_state=SEED+5)
     dates    = spread_dates(n_bursts)
     rows     = []
     for i, ts in enumerate(dates):
-        clerk   = clerks.iloc[i % len(clerks)]
-        manager = managers.iloc[i % len(managers)]
+        clerk   = employees[employees["emp_class"] == "CLERK"].sample(1).iloc[0]
+        manager = employees[employees["emp_class"] == "MANAGER"].sample(1).iloc[0]
         branch  = clerk["branch_id"]
         c_ip    = random.choice(ip_pool["internal"][branch])
-        m_ip    = random.choice(ip_pool["internal"][branch])
+        m_ip    = random.choice(ip_pool["internal"][manager["branch_id"]])
         base    = datetime(ts.year, ts.month, ts.day, ts.hour, 0, 0)
         for j in range(loans_per_burst):
             offset_sec = j * 100          # one loan every ~100 seconds → 25 min total
@@ -304,14 +331,13 @@ def inject_atm_harvest(employees, ip_pool, rng, n_events=35, withdrawals_per_eve
     Modeled as teller-processed ATM events linked to the employee who enabled access.
     This is the PMLA structuring pattern Agent 6 monitors.
     """
-    clerks = employees[employees["emp_class"] == "CLERK"].sample(5, random_state=SEED+6)
-    dates  = spread_dates(n_events)
-    rows   = []
+    dates   = spread_dates(n_events)
+    rows    = []
     for i, ts in enumerate(dates):
-        clerk      = clerks.iloc[i % len(clerks)]
+        clerk      = employees[employees["emp_class"] == "CLERK"].sample(1).iloc[0]
+        victim_acc = ATM_VICTIM_ACCOUNTS[i % len(ATM_VICTIM_ACCOUNTS)]
         branch     = clerk["branch_id"]
         c_ip       = random.choice(ip_pool["internal"][branch])
-        victim_acc = ATM_VICTIM_ACCOUNTS[i % len(ATM_VICTIM_ACCOUNTS)]
         base       = datetime(ts.year, ts.month, ts.day, ts.hour, 0, 0)
         for j in range(withdrawals_per_event):
             amt = round(random.uniform(9_500, 10_000), 2)
@@ -340,11 +366,10 @@ def inject_ghost_layering(employees, ip_pool, rng, n_events=25, transfers_per_ev
     The GNN will detect the dense circular subgraph as a fraud cluster.
     """
     GHOST_ACCOUNTS = [f"ACC_{8000 + i}" for i in range(10)]
-    clerks = employees[employees["emp_class"] == "CLERK"].sample(4, random_state=SEED+7)
     dates  = spread_dates(n_events)
     rows   = []
     for i, ts in enumerate(dates):
-        clerk  = clerks.iloc[i % len(clerks)]
+        clerk  = employees[employees["emp_class"] == "CLERK"].sample(1).iloc[0]
         branch = clerk["branch_id"]
         c_ip   = random.choice(ip_pool["internal"][branch])
         base   = datetime(ts.year, ts.month, ts.day, ts.hour, 0, 0)
@@ -371,7 +396,8 @@ def inject_ghost_layering(employees, ip_pool, rng, n_events=25, transfers_per_ev
 
 COLUMN_ORDER = [
     "timestamp", "transaction_id", "emp_id", "emp_class", "branch_id",
-    "action_type", "amount", "account_touched", "ip_address", "transfer_channel",
+    "action_type", "amount", "account_touched", "destination_account", "ip_address", "transfer_channel",
+    "records_accessed", "dwell_time_seconds",
     "raw_complaint_text", "hr_remark_text", "is_fraud_flag",
 ]
 
@@ -400,6 +426,9 @@ def validate(df: pd.DataFrame) -> None:
     assert df["is_fraud_flag"].isin([0,1]).all(),    "Non-binary fraud flag"
     assert not df["timestamp"].isna().any(),          "Null timestamps"
     assert "transfer_channel" in df.columns,          "transfer_channel missing"
+    assert "destination_account" in df.columns,       "destination_account missing"
+    assert "dwell_time_seconds" in df.columns,        "dwell_time_seconds missing"
+    assert "records_accessed" in df.columns,          "records_accessed missing"
     assert "ATM_Withdrawal" in df["action_type"].values, "ATM_Withdrawal action missing"
     fraud_rate = df["is_fraud_flag"].mean()
     assert 0.01 <= fraud_rate <= 0.05,               f"Fraud rate {fraud_rate:.4f} out of 1-5% range"

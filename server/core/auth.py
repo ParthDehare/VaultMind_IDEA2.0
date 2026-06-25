@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 import bcrypt
@@ -19,7 +19,9 @@ load_dotenv()
 # ─────────────────────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────────────────────
-JWT_SECRET    = os.getenv("JWT_SECRET", "vaultmind_hackathon_secret_2026_ubi")
+JWT_SECRET    = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    raise ValueError("FATAL ERROR: JWT_SECRET environment variable is missing. Halting server for security.")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
@@ -45,7 +47,8 @@ class UserOut(BaseModel):
 def verify_password(plain: str, hashed: str) -> bool:
     try:
         return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
-    except Exception:
+    except Exception as e:
+        print(f"[Auth] bcrypt error: {e}")
         return False
 
 def hash_password(plain: str) -> str:
@@ -99,8 +102,8 @@ def authenticate_user(email: str, password: str) -> Optional[dict]:
     
     try:
         is_valid = verify_password(password, db_password)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[Auth] verify password exception: {e}")
             
     if not is_valid:
         return None
@@ -112,12 +115,22 @@ def authenticate_user(email: str, password: str) -> Optional[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 # FASTAPI DEPENDENCY — Extract & validate JWT from Authorization header
 # ─────────────────────────────────────────────────────────────────────────────
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> TokenData:
+async def get_current_user(request: Request) -> TokenData:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Invalid or expired token. Please log in again.",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    token = request.cookies.get("vm_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
+            
+    if not token:
+        raise credentials_exception
+
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         email: str = payload.get("sub")

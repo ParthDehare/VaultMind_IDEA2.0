@@ -8,6 +8,16 @@ class HistoricalState:
         self.redis = redis_db
         # 7 days in seconds
         self.retention_period = 7 * 24 * 60 * 60
+        self.stats = {
+            "transactions_scanned": 0,
+            "critical_alerts": 0,
+            "high_risk_flags": 0,
+            "confirmed_fraud": 0,
+            "cbsi_sum": 0.0
+        }
+        self.recent_alerts = []
+        self.graph_nodes = set()
+        self.graph_edges = []
 
     def update_user_volume(self, emp_id: str, amount: float):
         if not self.redis:
