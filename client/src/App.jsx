@@ -437,7 +437,7 @@ export default function App() {
   ];
 
   const handleLogin = (token, user) => {
-    authStore.setAuth(token, user);
+    authStore.setAuth(user);
     setIsAuthenticated(true);
     setUser(user);
   };
