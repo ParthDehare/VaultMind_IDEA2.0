@@ -69,6 +69,11 @@ import warnings
 import requests
 from typing import Dict, List, Tuple, Set
 
+try:
+    from core.db_connections import redis_db as _geo_redis
+except ImportError:
+    _geo_redis = None
+
 # ---------------------------------------------------------------------------
 # CONSTANTS
 # ---------------------------------------------------------------------------
@@ -382,21 +387,39 @@ class FundFlow:
         # ── Tier 3: Geolocation anomaly (non-Indian IP) ───────────
         if ip:
             is_indian = False
-            # Try dynamic GeoIP API first
-            try:
-                # Use a short timeout so we don't block inference for too long
-                resp = requests.get(f"https://ipapi.co/{ip}/country/", timeout=1.0)
-                if resp.status_code == 200:
-                    country_code = resp.text.strip()
-                    is_indian = (country_code == "IN")
-                else:
-                    # Fallback to static prefix matching if API rate limits or fails
-                    prefix_8 = f"{ip.split('.')[0]}."
+            # Check Redis cache first, then API, then static fallback
+            cache_key = f"geoip:{ip}"
+            cached = None
+            if _geo_redis:
+                try:
+                    cached = _geo_redis.get(cache_key)
+                except Exception:
+                    cached = None
+
+            if cached is not None:
+                is_indian = (cached == b"IN" or cached == "IN")
+            else:
+                country = None
+                try:
+                    resp = requests.get(f"https://ipapi.co/{ip}/country/", timeout=1.0)
+                    if resp.status_code == 200:
+                        country = resp.text.strip()
+                except Exception:
+                    pass
+
+                if country is None:
+                    # Static prefix fallback
                     is_indian = any(ip.startswith(pfx) for pfx in INDIA_IP_PREFIXES)
-            except Exception:
-                # Fallback on any error (timeout, network issue)
-                prefix_8 = f"{ip.split('.')[0]}." if "." in ip else ""
-                is_indian = any(ip.startswith(pfx) for pfx in INDIA_IP_PREFIXES)
+                    country = "IN" if is_indian else "XX"
+                else:
+                    is_indian = (country == "IN")
+
+                # Cache result for 24 hours
+                if _geo_redis:
+                    try:
+                        _geo_redis.setex(cache_key, 86400, country)
+                    except Exception:
+                        pass
 
             if not is_indian and max_weight < 0.52:
                 # Only fire if Tor/VPN haven't already covered the IP

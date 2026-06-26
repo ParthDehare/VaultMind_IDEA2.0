@@ -1,6 +1,12 @@
 """
 VaultMind — ML Model Loader
 Loads and caches trained models from server/models/ at startup.
+
+FIXED:
+  - Agent 1: iso_forest → xgb_model, decision_function → predict_proba
+  - GNN architecture updated to match upgraded train_agent2.py
+    (in_channels=3, hidden=64, dropout, BatchNorm)
+  - optimal_threshold loaded from account_mapping.pkl and used at inference
 """
 import os
 import pickle
@@ -17,70 +23,94 @@ except ImportError:
     warnings.warn("[MLModels] PyTorch not found. GNN predictions will gracefully fall back to rule engine.")
 
 # ---------------------------------------------------------
-# PyTorch Geometric Mock Architecture
-# Matches the state_dict from agent2_gnn.pth exactly.
+# PyTorch Geometric GNN Architecture
+# MUST match train_agent2.py exactly — hidden=64, dropout,
+# BatchNorm, in_channels=3 (degree + fraud_rate node feats)
 # ---------------------------------------------------------
 if TORCH_AVAILABLE:
-    class MockSAGEConv(nn.Module):
-        def __init__(self, in_channels, out_channels):
-            super().__init__()
-            self.lin_l = nn.Linear(in_channels, out_channels, bias=True)
-            self.lin_r = nn.Linear(in_channels, out_channels, bias=False)
-            
-        def forward(self, x, edge_index=None):
-            return self.lin_l(x)
+    try:
+        from torch_geometric.nn import SAGEConv
+        PYGEOMETRIC_AVAILABLE = True
+        print("[MLModels] ✅ torch_geometric available — using real SAGEConv.")
+    except ImportError:
+        PYGEOMETRIC_AVAILABLE = False
+        warnings.warn("[MLModels] torch_geometric not found. Using approximate GNN (linear fallback).")
+
+        class SAGEConv(nn.Module):
+            """Fallback: Linear approximation when torch_geometric is unavailable."""
+            def __init__(self, in_channels, out_channels):
+                super().__init__()
+                self.lin_l = nn.Linear(in_channels, out_channels, bias=True)
+                self.lin_r = nn.Linear(in_channels, out_channels, bias=False)
+            def forward(self, x, edge_index=None):
+                return self.lin_l(x)
 
     class GraphSAGEEdgeClassifier(nn.Module):
-        def __init__(self, in_channels=1, hidden_channels=32, edge_in_channels=2):
+        """
+        UPGRADED — must match train_agent2.py exactly:
+          - in_channels=3  (out_degree, in_degree, fraud_rate)
+          - hidden=64
+          - Dropout + BatchNorm in MLP
+        """
+        def __init__(self, in_channels=3, hidden_channels=64, edge_in_channels=2, dropout=0.3):
             super(GraphSAGEEdgeClassifier, self).__init__()
-            self.conv1 = MockSAGEConv(in_channels, hidden_channels)
-            self.conv2 = MockSAGEConv(hidden_channels, hidden_channels)
-            
+            self.dropout = dropout
+            self.conv1 = SAGEConv(in_channels, hidden_channels)
+            self.conv2 = SAGEConv(hidden_channels, hidden_channels)
+
             mlp_in = hidden_channels * 2 + edge_in_channels
             self.edge_mlp = nn.Sequential(
                 nn.Linear(mlp_in, hidden_channels),
+                nn.BatchNorm1d(hidden_channels),
                 nn.ReLU(),
-                nn.Linear(hidden_channels, 1)
+                nn.Dropout(p=dropout),
+                nn.Linear(hidden_channels, hidden_channels // 2),
+                nn.ReLU(),
+                nn.Linear(hidden_channels // 2, 1)
             )
 
         def forward(self, x, edge_index, edge_attr):
             h = self.conv1(x, edge_index)
             h = torch.relu(h)
+            h = torch.nn.functional.dropout(h, p=self.dropout, training=self.training)
             h = self.conv2(h, edge_index)
+            h = torch.relu(h)
             src, dst = edge_index
-            src_emb = h[src]
-            dst_emb = h[dst]
-            edge_repr = torch.cat([src_emb, dst_emb, edge_attr], dim=1)
+            edge_repr = torch.cat([h[src], h[dst], edge_attr], dim=1)
             return self.edge_mlp(edge_repr).squeeze(-1)
 
 
 MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "models")
 
+
 class MLModelService:
     """Singleton-style ML model loader. Call load_all() at startup."""
 
     def __init__(self):
-        self.iso_forest = None        # Isolation Forest (Agent 1)
-        self.scaler = None            # StandardScaler (Agent 1)
-        self.account_mapping = None   # Account mapping dict
-        self.edge_scaler = None       # Edge scaler for GNN
-        self._loaded = False
+        self.xgb_model         = None   # XGBoost classifier (Agent 1) — RENAMED from iso_forest
+        self.scaler            = None   # StandardScaler (Agent 1)
+        self.account_mapping   = None   # Account → node index dict
+        self.edge_scaler       = None   # Edge scaler for GNN
+        self.optimal_threshold = 0.5    # Saved threshold from train_agent2
+        self.gnn               = None   # GNN model (Agent 2)
+        self._loaded           = False
 
     def load_all(self):
         """Load all models from disk. Call once at server startup."""
         if self._loaded:
             return
 
-        # --- Agent 1: Isolation Forest + Scaler ---
-        iso_path = os.path.join(MODELS_DIR, "agent1_iso_forest.pkl")
+        # --- Agent 1: XGBoost + Scaler ---
+        # File is still named agent1_iso_forest.pkl (no rename needed)
+        model_path  = os.path.join(MODELS_DIR, "agent1_iso_forest.pkl")
         scaler_path = os.path.join(MODELS_DIR, "agent1_scaler.pkl")
 
         try:
-            with open(iso_path, "rb") as f:
-                self.iso_forest = pickle.load(f)
-            print(f"[MLModels] ✅ Loaded Isolation Forest from {iso_path}")
+            with open(model_path, "rb") as f:
+                self.xgb_model = pickle.load(f)
+            print(f"[MLModels] ✅ Loaded XGBoost model from {model_path}")
         except Exception as e:
-            warnings.warn(f"[MLModels] ❌ Failed to load Isolation Forest: {e}")
+            warnings.warn(f"[MLModels] ❌ Failed to load XGBoost model: {e}")
 
         try:
             with open(scaler_path, "rb") as f:
@@ -89,23 +119,37 @@ class MLModelService:
         except Exception as e:
             warnings.warn(f"[MLModels] ❌ Failed to load Scaler: {e}")
 
-        # --- Account Mapping ---
+        # --- Agent 2: Account Mapping + GNN threshold ---
         mapping_path = os.path.join(MODELS_DIR, "account_mapping.pkl")
         try:
             with open(mapping_path, "rb") as f:
                 data = pickle.load(f)
-                self.account_mapping = data['account_mapping']
-                self.edge_scaler = data['edge_scaler']
-            print(f"[MLModels] ✅ Loaded Account Mapping ({len(self.account_mapping)} entries)")
+            self.account_mapping   = data["account_mapping"]
+            self.edge_scaler       = data["edge_scaler"]
+            # Load optimal threshold saved during training (default 0.5 if missing)
+            self.optimal_threshold = data.get("optimal_threshold", 0.5)
+            print(
+                f"[MLModels] ✅ Loaded Account Mapping "
+                f"({len(self.account_mapping)} entries), "
+                f"threshold={self.optimal_threshold:.2f}"
+            )
         except Exception as e:
             warnings.warn(f"[MLModels] ❌ Failed to load Account Mapping: {e}")
 
-        # --- Agent 5: PyTorch GNN ---
+        # --- Agent 2: PyTorch GNN ---
         gnn_path = os.path.join(MODELS_DIR, "agent2_gnn.pth")
         if TORCH_AVAILABLE:
             try:
-                self.gnn = GraphSAGEEdgeClassifier()
-                state_dict = torch.load(gnn_path, map_location=torch.device('cpu'), weights_only=True)
+                # in_channels=3 matches upgraded train_agent2.py node features
+                self.gnn = GraphSAGEEdgeClassifier(
+                    in_channels=3, hidden_channels=64,
+                    edge_in_channels=2, dropout=0.3
+                )
+                state_dict = torch.load(
+                    gnn_path,
+                    map_location=torch.device("cpu"),
+                    weights_only=True
+                )
                 self.gnn.load_state_dict(state_dict, strict=True)
                 self.gnn.eval()
                 print(f"[MLModels] ✅ Loaded PyTorch GNN from {gnn_path}")
@@ -114,65 +158,88 @@ class MLModelService:
                 warnings.warn(f"[MLModels] ❌ Failed to load PyTorch GNN: {e}")
         else:
             self.gnn = None
-        
+
         self._loaded = True
+
+    # ------------------------------------------------------------------
+    # Agent 1 — XGBoost inference
+    # ------------------------------------------------------------------
 
     def predict_anomaly(self, features: np.ndarray) -> float:
         """
-        Run Isolation Forest prediction.
-        
+        Run XGBoost fraud prediction.
+
         Args:
-            features: 1D numpy array of [amount, dwell_time, login_hour, ...]
-            
+            features: 1D numpy array — must be 7 values in this order:
+                [amount, dwell_time_seconds, records_accessed, login_hour,
+                 amount_vs_user_avg, time_since_last_txn, txn_count_1hr]
+
         Returns:
-            Anomaly score 0-100 (higher = more anomalous)
+            Anomaly score 0–100 (higher = more likely fraud), or -1 if unavailable.
         """
-        if self.iso_forest is None or self.scaler is None:
-            return -1  # Indicates model unavailable — fall back to rules
+        if self.xgb_model is None or self.scaler is None:
+            return -1   # Fall back to rule engine
 
-        # Scale features using the trained scaler
         features_2d = features.reshape(1, -1)
-        scaled = self.scaler.transform(features_2d)
+        scaled      = self.scaler.transform(features_2d)
 
-        # Isolation Forest: decision_function returns negative for anomalies
-        # score_samples returns the anomaly score (negative = anomalous)
-        raw_score = self.iso_forest.decision_function(scaled)[0]
+        # XGBoost: predict_proba returns [[prob_normal, prob_fraud]]
+        fraud_prob  = self.xgb_model.predict_proba(scaled)[0][1]
 
-        # Convert to 0-100 scale: more negative = higher risk
-        # Typical IF scores range from -0.5 (anomaly) to +0.5 (normal)
-        anomaly_score = int(min(100, max(0, (0.5 - raw_score) * 100)))
-        return anomaly_score
+        # Convert 0–1 probability → 0–100 score
+        return float(min(100.0, max(0.0, fraud_prob * 100.0)))
+
+    # ------------------------------------------------------------------
+    # Agent 2 — GNN inference
+    # ------------------------------------------------------------------
 
     def predict_gnn(self, transaction: dict) -> float:
         """
         Run PyTorch GNN prediction for NetworkIntel.
-        
+
         Args:
-            transaction: dict with transaction details
-            
+            transaction: dict with transaction details.
+
         Returns:
-            Network threat score 0-100, or -1 if unavailable
+            Network threat score 0–100, or -1 if unavailable.
         """
-        if self.gnn is None or self.account_mapping is None or self.edge_scaler is None or not TORCH_AVAILABLE:
+        if (self.gnn is None or self.account_mapping is None
+                or self.edge_scaler is None or not TORCH_AVAILABLE):
             return -1
 
         emp_id = transaction.get("emp_id", "UNKNOWN")
-        amt = float(transaction.get("amount", 0.0))
-        dwell = float(transaction.get("dwell_time_seconds", 30.0))
+        amt    = float(transaction.get("amount", 0.0))
+        dwell  = float(transaction.get("dwell_time_seconds", 30.0))
 
         if emp_id not in self.account_mapping:
-            return -1 # Fallback to rules if unknown entity
+            return -1   # Unknown entity — fall back to rules
 
         try:
-            x = torch.ones((2, 1), dtype=torch.float32)
-            edge_index = torch.tensor([[0], [1]], dtype=torch.long)
-            edge_attr_np = self.edge_scaler.transform(np.array([[amt, dwell]]))
-            edge_attr = torch.tensor(edge_attr_np, dtype=torch.float32)
-            
-            score = self.gnn(x, edge_index, edge_attr)
-            return min(100.0, max(0.0, torch.sigmoid(score).item() * 100.0))
+            # Node features: 3 dims to match upgraded model (out_deg, in_deg, fraud_rate)
+            # At inference time we don't know true graph stats, so use neutral defaults
+            x = torch.zeros((2, 3), dtype=torch.float32)   # shape (2 nodes, 3 features)
+
+            edge_index    = torch.tensor([[0], [1]], dtype=torch.long)
+            edge_attr_np  = self.edge_scaler.transform(np.array([[amt, dwell]]))
+            edge_attr     = torch.tensor(edge_attr_np, dtype=torch.float32)
+
+            with torch.no_grad():
+                logit = self.gnn(x, edge_index, edge_attr)
+                prob  = torch.sigmoid(logit).item()
+
+            # Use optimal threshold saved from training to decide high/low risk
+            # but still return a continuous 0–100 score
+            raw_score = prob * 100.0
+
+            # Boost score if above optimal threshold (cross-boundary penalty)
+            if prob >= self.optimal_threshold:
+                raw_score = min(100.0, raw_score * 1.15)
+
+            return float(raw_score)
+
         except Exception:
             return -1
+
 
 # Global singleton
 ml_models = MLModelService()

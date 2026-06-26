@@ -100,31 +100,37 @@ print(f"  zone distribution:\n{employees['zone_id'].value_counts().to_dict()}")
 # ══════════════════════════════════════════════════════════════
 
 def add_dwell_time(df):
-    """Add dwell_time_seconds based on role, action type, and fraud flag."""
+    """Add dwell_time_seconds based on role and action type (no fraud label dependency)."""
     n = len(df)
+    emp_class = df.get('emp_class', 'CLERK')
+
+    # Base: CLERK default range
     dwell = np.round(np.random.uniform(30, 300, n), 1)
-    
-    is_fraud_mask = df.get('is_fraud_flag', 0) == 1
-    dwell[is_fraud_mask] = np.round(np.random.uniform(45, 180, is_fraud_mask.sum()), 1)
-    
-    it_mask = (df.get('emp_class', '') == 'IT_ADMIN') & (df.get('action_type', '').isin(['SYSTEM_BULK_EXPORT', 'DB_Read']))
+
+    # Role-based variation
+    manager_mask = emp_class == 'MANAGER'
+    dwell[manager_mask] = np.round(np.random.uniform(60, 300, manager_mask.sum()), 1)
+
+    # IT_ADMIN batch operations: machine-speed dwell
+    it_mask = (emp_class == 'IT_ADMIN') & (df.get('action_type', '').isin(['SYSTEM_BULK_EXPORT', 'DB_Read']))
     dwell[it_mask] = np.round(np.random.uniform(0.001, 0.01, it_mask.sum()), 4)
-    
+
     return dwell
 
 def add_records_accessed(df):
-    """Add records_accessed based on role and fraud flag."""
+    """Add records_accessed based on role (no fraud label dependency)."""
     n = len(df)
-    records = np.random.randint(80, 151, n)
-    
-    is_fraud = df.get('is_fraud_flag', 0) == 1
     emp_class = df.get('emp_class', 'CLERK')
-    
-    records[(emp_class == 'CLERK') & is_fraud] = np.random.randint(2000, 5001, ((emp_class == 'CLERK') & is_fraud).sum())
-    records[(emp_class == 'MANAGER') & ~is_fraud] = np.random.randint(15, 51, ((emp_class == 'MANAGER') & ~is_fraud).sum())
-    records[(emp_class == 'MANAGER') & is_fraud] = np.random.randint(150, 500, ((emp_class == 'MANAGER') & is_fraud).sum())
+
+    # Base: CLERK default range
+    records = np.random.randint(80, 151, n)
+
+    # MANAGER: fewer records in normal operations
+    records[emp_class == 'MANAGER'] = np.random.randint(15, 51, (emp_class == 'MANAGER').sum())
+
+    # IT_ADMIN: high volume batch access
     records[emp_class == 'IT_ADMIN'] = np.random.randint(5000, 100001, (emp_class == 'IT_ADMIN').sum())
-    
+
     return records
 
 def add_calendar_context(df):

@@ -179,7 +179,8 @@ class MasterOrchestrator:
             "dominant_agent": dominant_agent,
             "reason": dominant_reason,
             "all_scores": agent_scores,
-            "evidence_status": evidence
+            "evidence_status": evidence,
+            "scoring_method": results.get("BehaviourWatch", {}).get("scoring_method", "UNKNOWN")
         }
         
         final_response = {**transaction, **response}

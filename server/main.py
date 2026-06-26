@@ -30,12 +30,14 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.include_router(api_router,  prefix="/api")
 app.include_router(auth_router, prefix="/api")
 
-# Allow React to connect
+# Allow React to connect — explicit origin whitelist for security
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex="https?://.*",  # Allows any origin with credentials
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
 
